@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>资讯 RAG · 检索与机会</title>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --surface2: #212d3d;
+            --border: #2d3a4f;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --error: #f85149;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin-bottom: 8px; }
+        .subtitle { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 24px; }
+        nav { margin-bottom: 20px; }
+        nav a { color: var(--accent); text-decoration: none; margin-right: 16px; }
+        nav a:hover { text-decoration: underline; }
+
+        .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .tabs button {
+            padding: 10px 20px;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: none;
+            color: var(--text-muted);
+            font-size: 0.9375rem;
+            cursor: pointer;
+        }
+        .tabs button:hover { color: var(--text); }
+        .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        .form-row { margin-bottom: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .form-row label { font-size: 0.875rem; color: var(--text-muted); min-width: 72px; }
+        .form-row input {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.9375rem;
+            width: 140px;
+        }
+        .form-row input.wide { width: 220px; }
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 6px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.9375rem;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .msg { margin: 12px 0; font-size: 0.875rem; }
+        .msg.error { color: var(--error); }
+        .msg.ok { color: var(--success); }
+
+        .result-meta { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 12px; }
+        .news-list { margin-top: 16px; }
+        .news-card {
+            padding: 14px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .news-card .title {
+            font-weight: 600;
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+        .news-card .title a { color: var(--accent); text-decoration: none; }
+        .news-card .title a:hover { text-decoration: underline; }
+        .news-card .meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; }
+        .news-card .summary { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
+        .news-card .code-tag { display: inline-block; padding: 2px 8px; background: var(--surface2); border-radius: 4px; font-size: 0.75rem; margin-right: 8px; }
+
+        .placeholder { color: var(--text-muted); font-size: 0.9375rem; padding: 24px; background: var(--surface); border-radius: 8px; border: 1px dashed var(--border); }
+        .placeholder .btn { margin-top: 12px; }
+        .hint { font-size: 0.8rem; color: var(--text-muted); margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>资讯 RAG</h1>
+        <p class="subtitle">按<strong>语义检索</strong>（向量召回）查新闻，可叠加股票、日期筛选；机会发现后续开放。</p>
+        <nav>
+            <a href="/">对话</a>
+            <a href="/cron-stock">订阅推送</a>
+        </nav>
+
+        <div class="tabs">
+            <button type="button" class="active" data-tab="search">资讯检索</button>
+            <button type="button" data-tab="opportunities">机会发现</button>
+        </div>
+
+        <div id="panel-search" class="panel active">
+            <div class="form-row">
+                <label>语义检索</label>
+                <input type="text" id="q" placeholder="必填。如：业绩增长、减持、政策利好、某公司" style="width: 360px;" />
+                <span class="hint">按向量相似度召回，可再叠加下方筛选</span>
+            </div>
+            <div class="form-row">
+                <label>股票代码</label>
+                <input type="text" id="code" placeholder="可选，如 600519" class="wide" />
+                <label>日期起</label>
+                <input type="date" id="from" />
+                <label>日期止</label>
+                <input type="date" id="to" />
+                <label>条数</label>
+                <input type="number" id="limit" value="20" min="1" max="100" style="width: 70px;" />
+                <button type="button" class="btn" id="btnSearch">语义检索</button>
+            </div>
+            <div id="msgSearch" class="msg"></div>
+            <div id="resultMeta" class="result-meta"></div>
+            <div id="resultList" class="news-list"></div>
+        </div>
+
+        <div id="panel-opportunities" class="panel">
+            <div class="placeholder">
+                <p>机会发现将按「情绪 + 行情」规则筛选（如：突发利好、困境反转、行业催化等），并支持推送到飞书。</p>
+                <p>当前可先用「资讯检索」不填股票代码，查看近期入库的全部新闻。</p>
+                <button type="button" class="btn" id="btnRecent">查看近期新闻（不限股票）</button>
+            </div>
+            <div id="msgOpp" class="msg"></div>
+            <div id="oppList" class="news-list"></div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            const qEl = document.getElementById('q');
+            const codeEl = document.getElementById('code');
+            const fromEl = document.getElementById('from');
+            const toEl = document.getElementById('to');
+            const limitEl = document.getElementById('limit');
+            const btnSearch = document.getElementById('btnSearch');
+            const msgSearch = document.getElementById('msgSearch');
+            const resultMeta = document.getElementById('resultMeta');
+            const resultList = document.getElementById('resultList');
+
+            const btnRecent = document.getElementById('btnRecent');
+            const msgOpp = document.getElementById('msgOpp');
+            const oppList = document.getElementById('oppList');
+
+            document.querySelectorAll('.tabs button').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                    this.classList.add('active');
+                    document.getElementById('panel-' + this.getAttribute('data-tab')).classList.add('active');
+                });
+            });
+
+            function showSearchMsg(text, isError) {
+                msgSearch.textContent = text;
+                msgSearch.className = 'msg' + (isError ? ' error' : ' ok');
+            }
+
+            function renderItems(items, container) {
+                if (!items || items.length === 0) {
+                    container.innerHTML = '<p style="color: var(--text-muted);">无结果</p>';
+                    return;
+                }
+                container.innerHTML = items.map(function (r) {
+                    const item = r.item || r;
+                    const title = (item.title || '').trim() || '（无标题）';
+                    const url = (item.url || '').trim();
+                    const meta = [item.code, item.source, item.date].filter(Boolean).join(' · ');
+                    const summary = (item.summary || '').trim();
+                    return '<div class="news-card">' +
+                        '<div class="title">' +
+                        (item.code ? '<span class="code-tag">' + item.code + '</span>' : '') +
+                        (url ? '<a href="' + url + '" target="_blank" rel="noopener">' + title + '</a>' : title) +
+                        '</div>' +
+                        '<div class="meta">' + meta + '</div>' +
+                        (summary ? '<div class="summary">' + summary + '</div>' : '') +
+                        '</div>';
+                }).join('');
+            }
+
+            btnSearch.addEventListener('click', function () {
+                const q = (qEl.value || '').trim();
+                const code = (codeEl.value || '').trim();
+                const from = (fromEl.value || '').trim();
+                const to = (toEl.value || '').trim();
+                const limit = parseInt(limitEl.value, 10) || 20;
+                if (!q) {
+                    showSearchMsg('请先输入要检索的内容（用于向量语义召回）', true);
+                    return;
+                }
+                msgSearch.textContent = '';
+                resultMeta.textContent = '语义检索中…';
+                resultList.innerHTML = '';
+                btnSearch.disabled = true;
+                const params = new URLSearchParams();
+                params.set('q', q);
+                if (code) params.set('code', code);
+                if (from) params.set('from', from);
+                if (to) params.set('to', to);
+                params.set('limit', Math.min(100, Math.max(1, limit)));
+                fetch('/api/rag/search?' + params.toString())
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.error) {
+                            showSearchMsg(data.error, true);
+                            resultMeta.textContent = '';
+                            return;
+                        }
+                        showSearchMsg('', false);
+                        resultMeta.textContent = '共 ' + (data.total || 0) + ' 条';
+                        renderItems(data.items || [], resultList);
+                    })
+                    .catch(e => {
+                        showSearchMsg('请求失败: ' + e.message, true);
+                        resultMeta.textContent = '';
+                    })
+                    .finally(function () { btnSearch.disabled = false; });
+            });
+
+            btnRecent.addEventListener('click', function () {
+                msgOpp.textContent = '';
+                oppList.innerHTML = '加载中…';
+                btnRecent.disabled = true;
+                fetch('/api/rag/search?limit=30')
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.error) {
+                            msgOpp.textContent = data.error;
+                            msgOpp.className = 'msg error';
+                            oppList.innerHTML = '';
+                            return;
+                        }
+                        msgOpp.textContent = '共 ' + (data.total || 0) + ' 条（近期入库，不限股票）';
+                        msgOpp.className = 'msg ok';
+                        renderItems(data.items || [], oppList);
+                    })
+                    .catch(e => {
+                        msgOpp.textContent = '请求失败: ' + e.message;
+                        msgOpp.className = 'msg error';
+                        oppList.innerHTML = '';
+                    })
+                    .finally(function () { btnRecent.disabled = false; });
+            });
+        })();
+    </script>
+</body>
+</html>

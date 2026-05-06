@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>突破评分</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --border: #2d3a4f;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --error: #f85149;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 720px; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin-bottom: 24px; }
+        .form-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .form-row label { font-size: 0.875rem; color: var(--text-muted); min-width: 80px; }
+        .form-row input[type="text"] {
+            flex: 1;
+            max-width: 200px;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.9375rem;
+        }
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 6px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.9375rem;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .result {
+            margin-top: 24px;
+            padding: 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .result.error { border-color: var(--error); color: var(--error); }
+        .result .score-line {
+            font-size: 1.125rem;
+            margin-bottom: 12px;
+        }
+        .result .score-line strong { color: var(--accent); }
+        .report-card {
+            background: #fff;
+            color: #24292f;
+            border-radius: 8px;
+            padding: 24px 32px;
+            margin-top: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .report-card .markdown-body { font-size: 14px; line-height: 1.6; background: transparent; padding: 0; }
+        .report-card .markdown-body h2 { font-size: 1.25em; margin-top: 1em; }
+        .report-card .markdown-body h3 { font-size: 1.1em; margin-top: 0.6em; }
+        .report-card .markdown-body ul { margin: 0.5em 0; }
+        .loading { color: var(--text-muted); }
+        nav { margin-bottom: 16px; }
+        nav a { color: var(--accent); text-decoration: none; }
+        nav a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+      
+        <h1>突破评分</h1>
+        <div class="form-row">
+            <label>股票代码</label>
+            <input type="text" id="symbol" placeholder="如 600519" maxlength="12" />
+            <button type="button" class="btn" id="btn">查询突破评分</button>
+        </div>
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+    <script>
+        const symbolInput = document.getElementById('symbol');
+        const btn = document.getElementById('btn');
+        const resultEl = document.getElementById('result');
+        const md = (typeof markdownit !== 'undefined') ? markdownit({ html: false, linkify: true, breaks: true }) : null;
+
+        function showResult(html, isError) {
+            resultEl.style.display = 'block';
+            resultEl.className = 'result' + (isError ? ' error' : '');
+            resultEl.innerHTML = html;
+        }
+
+        btn.addEventListener('click', async function () {
+            const symbol = (symbolInput.value || '').trim();
+            if (!symbol) {
+                showResult('请输入股票代码。', true);
+                return;
+            }
+            btn.disabled = true;
+            showResult('<span class="loading">正在请求突破评分…</span>', false);
+
+            try {
+                const res = await fetch('/api/breakout_score', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, period: 'daily', lookback: 60 })
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                    showResult('请求失败: ' + (data.error || res.statusText), true);
+                    return;
+                }
+
+                const report = data.report || '';
+                const score = data.breakout_score != null ? data.breakout_score : '';
+                const dimensions = data.dimension_scores || {};
+                const signals = data.signals || [];
+
+                let html = '';
+                if (score !== '') {
+                    html += '<div class="score-line">突破评分：<strong>' + score + '</strong> / 100</div>';
+                }
+                if (Object.keys(dimensions).length) {
+                    const names = { volatility_compression: '波动压缩', ma_convergence: '均线收敛', volume: '量能', near_high: '接近前高', sector_strength: '行业强度' };
+                    html += '<div class="score-line">分项：';
+                    for (const [k, v] of Object.entries(dimensions)) {
+                        html += (names[k] || k) + ' ' + v + ' 分；';
+                    }
+                    html += '</div>';
+                }
+                if (signals.length) {
+                    html += '<div class="score-line">信号：' + signals.join('；') + '</div>';
+                }
+                if (report) {
+                    const rendered = md ? md.render(report) : report.replace(/\n/g, '<br>');
+                    html += '<div class="report-card"><div class="markdown-body">' + rendered + '</div></div>';
+                }
+                if (!html) html = '无数据返回。';
+                showResult(html, false);
+            } catch (e) {
+                showResult('请求异常: ' + e.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
