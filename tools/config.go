@@ -1,4 +1,4 @@
-// Package rag 从 config/stock.json（或 STOCK_CONFIG 指定路径）读取统一配置：RAG、Embedding、Chat 模型等。
+// Package tools 从 config/stock.json（或 STOCK_CONFIG 指定路径）读取统一配置：RAG、Embedding、Chat、Prompt 版本等。
 package tools
 
 import (
@@ -10,10 +10,36 @@ import (
 	"sync"
 )
 
-// StockConfig 统一配置文件根结构，与 config/stock.json 或 stock.example.json 对应。
+// StockConfig 统一配置文件根结构。
 type StockConfig struct {
 	RAG        *RAGConfig        `json:"rag"`
 	ChatOpenAI *ChatOpenAIConfig `json:"chatOpenAI"`
+	Prompt     *PromptConfig     `json:"prompt"`
+	Eval       *EvalConfig       `json:"eval"`
+}
+
+// PromptConfig 管理 SystemInstruction / FullReportOutputFormat 的多版本与当前启用版本。
+type PromptConfig struct {
+	ActiveVersion string                         `json:"activeVersion"`
+	Versions      map[string]PromptVersionFields `json:"versions"`
+}
+
+// PromptVersionFields 某一版本的模板；字段均可选，未提供则回退到代码内置默认模板。
+// 解析顺序（系统指令）：systemInstructionTemplateFile → templateDir/system.md → systemInstructionTemplate → 内置。
+// 解析顺序（全量报告格式）：fullReportOutputFormatFile → templateDir/full_report.md → fullReportOutputFormat → 内置。
+// templateDir、*TemplateFile 路径均相对「当前 stock 配置文件」所在目录（如 config/）。
+type PromptVersionFields struct {
+	TemplateDir                   string `json:"templateDir"`
+	SystemInstructionTemplate     string `json:"systemInstructionTemplate"`
+	FullReportOutputFormat        string `json:"fullReportOutputFormat"`
+	SystemInstructionTemplateFile string `json:"systemInstructionTemplateFile"`
+	FullReportOutputFormatFile    string `json:"fullReportOutputFormatFile"`
+	Note                          string `json:"note,omitempty"`
+}
+
+// EvalConfig 离线评测默认路径等。
+type EvalConfig struct {
+	DefaultSuitePath string `json:"defaultSuitePath"`
 }
 
 // RAGConfig 对应 config 中 rag 段。
@@ -37,8 +63,9 @@ type ChatOpenAIConfig struct {
 }
 
 var (
-	stockConfig     *StockConfig
-	stockConfigOnce sync.Once
+	stockConfig          *StockConfig
+	stockConfigOnce      sync.Once
+	stockConfigSourceDir string
 )
 
 func configPath() string {
@@ -82,6 +109,12 @@ func loadStockConfig() *StockConfig {
 		if path != "" && !filepath.IsAbs(path) {
 			path = filepath.Join(".", path)
 		}
+		ap, err := filepath.Abs(path)
+		if err != nil {
+			ap = path
+		}
+		stockConfigSourceDir = filepath.Dir(ap)
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return
@@ -116,11 +149,11 @@ func GetembeddingBaseURL() string {
 		if strings.Contains(lower, "embed") {
 			return s
 		}
-		// Ollama：默认使用 /api/embeddings（本地一般为 :11434）
+		// Ollama：默认使用 /api/embeddings
 		if strings.Contains(lower, "ollama") || strings.Contains(lower, "localhost:11434") || strings.Contains(lower, "127.0.0.1:11434") {
 			return s + "/api/embeddings"
 		}
-		// 火山引擎需 /embeddings/multimodal
+		// 火山引擎
 		if strings.Contains(lower, "volces.com") || strings.Contains(lower, "ark.cn-beijing") {
 			return s + "/embeddings/multimodal"
 		}
@@ -129,7 +162,6 @@ func GetembeddingBaseURL() string {
 	s := strings.TrimSuffix(os.Getenv("RAG_EMBEDDING_URL"), "/")
 	if s != "" {
 		lower := strings.ToLower(s)
-		// Ollama：允许只配 root（http://localhost:11434）
 		if !strings.Contains(lower, "embed") && (strings.Contains(lower, "ollama") || strings.Contains(lower, "localhost:11434") || strings.Contains(lower, "127.0.0.1:11434")) {
 			return strings.TrimSuffix(s, "/") + "/api/embeddings"
 		}

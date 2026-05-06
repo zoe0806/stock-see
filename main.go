@@ -3,16 +3,19 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"stock-see/cronstock"
+	"stock-see/eval"
 	"stock-see/memory"
 	"stock-see/prompt"
 	"stock-see/rag"
@@ -58,6 +61,11 @@ func loadMatchedSkillPaths(skillsRoot, userMessage string) []string {
 }
 
 func main() {
+	evalFlag := flag.Bool("eval", false, "运行离线评测集（读取 -eval-suite 或 config.eval.defaultSuitePath），打印均分后退出")
+	evalSuite := flag.String("eval-suite", "", "评测集 JSON 路径（默认可由 config eval.defaultSuitePath 指定）")
+	evalJSONOut := flag.String("eval-json", "", "评测汇总写入该 JSON 文件（可选）")
+	flag.Parse()
+
 	ctx := context.Background()
 	chatCfg := tools.GetChatOpenAIConfig()
 	if chatCfg == nil || chatCfg.Model == "" || chatCfg.APIKey == "" {
@@ -72,10 +80,44 @@ func main() {
 		log.Fatalf("初始化模型失败: %v", err)
 	}
 
+	sysTpl, fullReportTpl, promptVer, err := tools.GetResolvedPrompt()
+	if err != nil {
+		log.Fatalf("解析 prompt 配置失败: %v", err)
+	}
+	log.Printf("prompt 当前版本: %s", promptVer)
+
+	if *evalFlag {
+		suitePath := strings.TrimSpace(*evalSuite)
+		if suitePath == "" {
+			suitePath = tools.GetEvalDefaultSuitePath()
+		}
+		if suitePath == "" {
+			suitePath = "data/eval/suite.json"
+		}
+		sum, err := eval.Run(ctx, chatModel, eval.Options{
+			SuitePath:        suitePath,
+			SystemTemplate:   sysTpl,
+			FullReportFormat: fullReportTpl,
+			PromptVersion:    promptVer,
+		})
+		if err != nil {
+			log.Fatalf("评测失败: %v", err)
+		}
+		log.Printf("评测完成 prompt=%s suite=%s 平均分=%.2f / 100", sum.PromptVersion, sum.SuitePath, sum.Average)
+		if p := strings.TrimSpace(*evalJSONOut); p != "" {
+			b, _ := json.MarshalIndent(sum, "", "  ")
+			if err := os.WriteFile(p, b, 0644); err != nil {
+				log.Fatalf("写入 %s: %v", p, err)
+			}
+			log.Printf("已写入 %s", p)
+		}
+		os.Exit(0)
+	}
+
 	agentConfig := &adk.ChatModelAgentConfig{
 		Name:        "StockAssistant",
 		Description: "股票分析助手，可获取行情与新闻并进行分析",
-		Instruction: prompt.SystemInstructionTemplate,
+		Instruction: sysTpl,
 		Model:       chatModel,
 	}
 	agentConfig.ToolsConfig = adk.ToolsConfig{
@@ -98,7 +140,7 @@ func main() {
 
 	// 2. 设置路由（具体路径优先于静态文件）
 	http.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
-		handerChat(w, r, runner)
+		handerChat(w, r, runner, fullReportTpl)
 	})
 	http.HandleFunc("/break", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/break" {
@@ -369,7 +411,7 @@ func replyJSON(w http.ResponseWriter, v any) {
 	enc.Encode(v)
 }
 
-func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner) {
+func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, fullReportFormat string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -441,7 +483,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner) {
 			flusher.Flush()
 		})
 		if err == nil && formattedScore != "" {
-			extraCtx = "## 本次并行分析结果（已执行）\n\n" + tools.FormatParallelResultForContext(combined) + "\n\n---\n\n## 综合评分结果\n\n" + formattedScore + "\n\n请根据以上数据生成综合报告、可操作建议与免责说明。**你必须严格按下文「综合报告输出格式」的结构与 Markdown 规范输出，不得在行尾使用 # 或 ##，分节清晰、关键数据加粗。**" + prompt.FullReportOutputFormat
+			extraCtx = prompt.BuildFullReportExtra(tools.FormatParallelResultForContext(combined), formattedScore, fullReportFormat)
 			if userMessage == "" {
 				userMessage = "根据上下文中的「本次并行分析结果」与「综合评分结果」，按「综合报告输出格式」生成该股票的综合报告（含当前行情、各维度分析、风险提示、操作建议与免责声明）。"
 			}

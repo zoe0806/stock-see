@@ -1,14 +1,14 @@
-// Package prompt 实现 OpenClaw 风格提示词：代码内硬编码模板 + 动态注入上下文。
+// Package prompt 实现 OpenClaw 风格提示词：内置默认模板（可被 config 版本覆盖）+ 动态注入上下文。
 package prompt
 
 import "strings"
 
-// SystemInstructionTemplate 是硬编码的系统指令模板
+// DefaultSystemInstructionTemplate 内置系统指令；config 中当前版本对应字段为空时回退到此内容。
 // 占位符 {Context} 由 SessionValues 在运行时替换为 BuildContext 的输出。
-const SystemInstructionTemplate = `# 系统指令（System Prompt）
+const DefaultSystemInstructionTemplate = `# 系统指令（System Prompt）
 
 ## 身份、能力与限制
-- 你是股票分析助手，是一个直接给出分析结果的 AI，不允许说任何客套话或前缀或解释性话语,直接以综合报告开始输出；当用户询问某只股票时，可先调用 get_market_data 获取行情再回答。
+- 你是股票分析助手，当用户询问某只股票时，可先调用 get_market_data 获取行情再回答。
 - 能力：理解自然语言、基于上下文推理、按需调用工具（若已配置）。
 - 限制：仅基于给定的上下文与工具作答，不编造未提供的信息。
 
@@ -21,14 +21,10 @@ const SystemInstructionTemplate = `# 系统指令（System Prompt）
 - 分析结论仅供参考，不构成投资建议；用户需独立判断并承担风险。
 
 ## 行为准则
-- 你是一个直接给出分析结果的 AI，不允许说任何客套话或前缀或解释性话语,直接以综合报告开始输出。
 - 不确定时明确说明，不猜测或敷衍。
 
 ## 输出格式（必须遵守）
 - 请严格按以下结构生成报告，使用 Markdown 语法，**每个子标题前面加上表情符号**。
-- 直接以综合分析报告开始，不加任何前缀或说明或任何过渡句。**绝对禁止的输出示例**：❌ “我将为您分析...首先让我获取该股票的最新行情和基本信息，然后进行多维度分析..”
-- 综合报告加上基本信息,包括公司简介、行业地位、产能布局、技术优势与护城河等，需要放在最前面。
-- 综合评估结果用表格展示。
 
 ---
 
@@ -39,32 +35,26 @@ const SystemInstructionTemplate = `# 系统指令（System Prompt）
 （以下为对话历史与当前用户消息，请据此回复。）
 `
 
-// FullReportOutputFormat 全量综合分析报告必须遵守的输出格式（Markdown），避免结尾多余 #、段落粘连等问题。
-// 模型需严格按此结构输出，关键数据用 **加粗**，分节用标题与列表。
-// 实际上这部分只有在 full_report 工具调用时才会被使用
-const FullReportOutputFormat = `
+// DefaultFullReportOutputFormat 内置全量综合报告格式说明；config 为空时回退。
+const DefaultFullReportOutputFormat = `
 ## 综合报告输出格式（必须遵守）
 
 请严格按以下结构生成报告，使用 Markdown 语法，**不要在行尾写 # 或 ##**。
 
 1. **标题**：一行，格式为「股票名称(代码) 综合分析报告」，如：中际旭创(300308) 综合分析报告
 
-2. **综合评分**：一行，格式为「综合评分: **XX分** (评级)」，评级为 strong_buy/buy/hold/reduce/sell 时对应为：强烈买入/买入/持有/减仓/卖出
-
-3. **当前行情**：小节标题「当前行情」，下用无序列表（每行以 - 开头），包含：最新价、涨跌幅、成交量、所属板块，数值用 **加粗**
-
-4. **各维度分析**：小节标题「各维度分析」，下接 5 个子节。**每个子节必须严格两行标题 + 列表**：
-   - 第一行（仅分数与维度名）：**1. 技术面（70分）**（数字与「技术面」可替换，括号内只有分数，不要写偏多/偏空）
-   - 第二行（小标题，单独一行）：**偏多** 或 **偏空**、**高估**、**中性** 等结论词，依该维度信号填写
-   - 第三行起：无序列表（每行以 - 开头），如关键指标、关键位等，关键数值用 **加粗**
-   - 其余 4 节同理：**2. 基本面（XX分）** 换行 **高估/低估/中性** 换行 列表；**3. 消息面（XX分）** 换行 **偏多/偏空/中性** 换行 列表；**4. 市场环境（XX分）** 换行 **有利/不利/中性** 换行 列表；**5. 板块分析（XX分）** 换行 结论 换行 列表
-
-5. **风险提示**：小节标题「风险提示」，下用有序列表（1. 2. 3.），每条简述风险，关键数值加粗
-
-6. **操作建议**：小节标题「操作建议」，下用有序列表（1. 2.），如短期/中期建议，用词仅限关注、警惕、跟踪、观望等
-
-7. **免责声明**：最后一行「免责声明: 以上分析仅供参考，不构成投资建议。」
 `
+
+// SystemInstructionTemplate 与 FullReportOutputFormat 为历史别名，等价于默认内置模板。
+const (
+	SystemInstructionTemplate = DefaultSystemInstructionTemplate
+	FullReportOutputFormat    = DefaultFullReportOutputFormat
+)
+
+// BuildFullReportExtra 拼接全量报告模式下注入到上下文的 Extra 块（与 main 中 full 模式一致）。
+func BuildFullReportExtra(combinedParallelMarkdown, formattedScoreMarkdown, fullReportFormat string) string {
+	return "## 本次并行分析结果（已执行）\n\n" + combinedParallelMarkdown + "\n\n---\n\n## 综合评分结果\n\n" + formattedScoreMarkdown + "\n\n请根据以上数据生成综合报告、可操作建议与免责说明。**你必须严格按下文「综合报告输出格式」的结构与 Markdown 规范输出，不得在行尾使用 # 或 ##，分节清晰、关键数据加粗。**" + fullReportFormat
+}
 
 // ContextInput 为动态注入的上下文组成部分（工作空间、记忆、技能、会话历史、行情与新闻）。
 type ContextInput struct {
