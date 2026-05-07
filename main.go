@@ -28,36 +28,14 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai" //openai模型
 )
 
-// loadMatchedSkillPaths 从 skills 目录加载技能列表，按用户消息匹配后返回要注入的 SKILL.md 路径列表。
-// 当用户提到 资金/龙虎榜/情绪/主力 时，自动注入情绪资金面技能（sentiment）。
-func loadMatchedSkillPaths(skillsRoot, userMessage string) []string {
+// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json；
+// fullReport 为 true 时额外注入综合报告核心维度技能（与并行分析一致）。
+func loadMatchedSkillPaths(skillsRoot, matchText string, fullReport bool) []string {
 	list, err := prompt.LoadSkillsFromDir(skillsRoot)
 	if err != nil {
 		return nil
 	}
-	paths := prompt.MatchSkills(list, userMessage)
-	for _, s := range list {
-		if s.Name != "sentiment" {
-			continue
-		}
-		for _, kw := range []string{"资金", "龙虎榜", "情绪", "主力"} {
-			if strings.Contains(userMessage, kw) {
-				have := false
-				for _, p := range paths {
-					if p == s.Path {
-						have = true
-						break
-					}
-				}
-				if !have {
-					paths = append(paths, s.Path)
-				}
-				break
-			}
-		}
-		break
-	}
-	return paths
+	return prompt.MatchSkillsForRequest(list, matchText, prompt.MatchOpts{FullReport: fullReport})
 }
 
 func main() {
@@ -433,9 +411,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 	}
 
 	userMessage := req.Message
-	skillsRoot := filepath.Join(".", "skills")
-	skillPaths := loadMatchedSkillPaths(skillsRoot, userMessage)
-	skillsContent := prompt.LoadSkillsContent(skillPaths)
 
 	marketCtx := ""
 	newsCtx := ""
@@ -492,6 +467,18 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 			flusher.Flush()
 		}
 	}
+
+	matchText := strings.TrimSpace(req.Message)
+	if u := strings.TrimSpace(userMessage); u != "" {
+		if matchText == "" {
+			matchText = u
+		} else if u != matchText {
+			matchText = matchText + "\n" + u
+		}
+	}
+	skillsRoot := filepath.Join(".", "skills")
+	skillPaths := loadMatchedSkillPaths(skillsRoot, matchText, needFullReport)
+	skillsContent := prompt.LoadSkillsContent(skillPaths)
 
 	contextBlock := prompt.BuildContext(prompt.ContextInput{
 		SessionHistory: req.SessionHistory,

@@ -9,9 +9,18 @@ import (
 
 // Skill 表示一个技能的元数据及 SKILL.md 路径。
 type Skill struct {
-	Name        string // 技能名称，如 ceo, cto, pm
-	Description string // 用于匹配用户请求的描述
-	Path        string // SKILL.md 的路径（相对或绝对）
+	Name                 string   // 技能名称（SKILL.md 所在目录名）
+	Description          string   // SKILL.md 首段摘要（展示用）
+	Path                 string   // SKILL.md 的路径
+	MatchKeywords        []string // 意图关键词（内置 + intent.json + HTML 注释）
+	AlwaysForFullReport  bool     // intent.json：全量模式下额外始终注入
+	ExcludeFromFullBundle bool    // intent.json：从全量默认捆绑中排除（如实验技能）
+}
+
+// MatchOpts 技能匹配选项。
+type MatchOpts struct {
+	// FullReport 为 true 时（如 mode=full 且带 symbol），先注入 fullReportSkillOrder 中的核心维度技能。
+	FullReport bool
 }
 
 // LoadSkillsFromDir 扫描目录，查找所有 skills/*/SKILL.md 或 skills/agent-roles/*/SKILL.md。
@@ -27,10 +36,14 @@ func LoadSkillsFromDir(root string) ([]Skill, error) {
 			dir := filepath.Dir(path)
 			name := filepath.Base(dir)
 			desc, _ := readFirstParagraph(path)
+			kws, alwaysFR, excl := loadSkillIntent(dir, path, name)
 			skills = append(skills, Skill{
-				Name:        name,
-				Description: desc,
-				Path:        path,
+				Name:                  name,
+				Description:           desc,
+				Path:                  path,
+				MatchKeywords:         kws,
+				AlwaysForFullReport:   alwaysFR,
+				ExcludeFromFullBundle: excl,
 			})
 		}
 		return nil
@@ -81,23 +94,68 @@ func LoadSkillsContent(paths []string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// MatchSkills 根据用户消息或任务描述做简单关键词匹配，返回建议加载的技能路径列表。
-// 可扩展为调用模型选择，或使用更复杂的匹配逻辑。
+// MatchSkills 保留兼容：等价于 MatchSkillsForRequest(skills, userMessageOrTask, MatchOpts{})。
 func MatchSkills(skills []Skill, userMessageOrTask string) []string {
-	lower := strings.ToLower(userMessageOrTask)
-	var out []string
+	return MatchSkillsForRequest(skills, userMessageOrTask, MatchOpts{})
+}
+
+// MatchSkillsForRequest 根据用户文本意图 + 可选全量报告模式，返回要注入的 SKILL.md 路径（去重保序）。
+func MatchSkillsForRequest(skills []Skill, userText string, opts MatchOpts) []string {
+	userText = strings.TrimSpace(userText)
+	lower := strings.ToLower(userText)
+
+	byName := make(map[string]Skill, len(skills))
 	for _, s := range skills {
-		if s.Description != "" && strings.Contains(lower, strings.ToLower(s.Name)) {
-			out = append(out, s.Path)
+		byName[s.Name] = s
+	}
+
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+
+	if opts.FullReport {
+		for _, name := range fullReportSkillOrder {
+			s, ok := byName[name]
+			if !ok || s.ExcludeFromFullBundle {
+				continue
+			}
+			add(s.Path)
+		}
+		for _, s := range skills {
+			if s.AlwaysForFullReport && !s.ExcludeFromFullBundle {
+				add(s.Path)
+			}
+		}
+	}
+
+	for _, s := range skills {
+		// 目录名英文较长时再按子串匹配，避免 news/risk 等短词误触
+		if len(s.Name) >= 5 && strings.Contains(lower, strings.ToLower(s.Name)) {
+			add(s.Path)
 			continue
 		}
-		// 描述中的关键词
-		for _, w := range strings.Fields(s.Description) {
-			if len(w) > 2 && strings.Contains(lower, strings.ToLower(w)) {
-				out = append(out, s.Path)
+		for _, kw := range s.MatchKeywords {
+			if kw != "" && strings.Contains(userText, kw) {
+				add(s.Path)
 				break
 			}
 		}
 	}
+
+	if strings.Contains(userText, "http://") || strings.Contains(userText, "https://") {
+		if s, ok := byName["scrapling"]; ok {
+			add(s.Path)
+		}
+	}
+
 	return out
 }
