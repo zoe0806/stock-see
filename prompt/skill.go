@@ -9,12 +9,12 @@ import (
 
 // Skill 表示一个技能的元数据及 SKILL.md 路径。
 type Skill struct {
-	Name                 string   // 技能名称（SKILL.md 所在目录名）
-	Description          string   // SKILL.md 首段摘要（展示用）
-	Path                 string   // SKILL.md 的路径
-	MatchKeywords        []string // 意图关键词（内置 + intent.json + HTML 注释）
-	AlwaysForFullReport  bool     // intent.json：全量模式下额外始终注入
-	ExcludeFromFullBundle bool    // intent.json：从全量默认捆绑中排除（如实验技能）
+	Name                  string   // 技能名称（SKILL.md 所在目录名）
+	Description           string   // SKILL.md 首段摘要（展示用）
+	Path                  string   // SKILL.md 的路径
+	MatchKeywords         []string // 意图关键词（内置 + intent.json + HTML 注释）
+	AlwaysForFullReport   bool     // intent.json：全量模式下额外始终注入
+	ExcludeFromFullBundle bool     // intent.json：从全量默认捆绑中排除（如实验技能）
 }
 
 // MatchOpts 技能匹配选项。

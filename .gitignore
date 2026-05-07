@@ -1,9 +1,7 @@
 # 本地数据与运行产物
 /data/
-/python/
 /docs/
 /memory/
-/project-experience/
 /skills/
 /eval/
 
@@ -11,4 +9,3 @@
 /config/
 
 
-/start_python.bat

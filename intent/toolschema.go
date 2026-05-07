@@ -12,7 +12,10 @@ func SubmitParsedIntentToolInfo() *schema.ToolInfo {
 规则：
 - task_kind 必须选枚举之一。
 - symbols 为沪深 A 股六位代码（可多）；若用户只说中文名可放在 symbol_names。
-- compare：对比两只及以上股票（估值/营收/涨跌等）时使用；compare_axis 表示主要对比维度。
+- quick_look：只要现价、涨跌、成交量、开盘收盘等轻量行情，一句问完即可；不要标成 deep_analysis。
+- deep_analysis：明确要求全面/深度/多维度/备忘录级/投资决策框架的分析。
+- general：泛问投资概念、方法、板块筛选思路等，无具体标的或不要求查某只股票。
+- compare：对比两只及以上股票（估值/营收/涨跌等）；compare_axis 表示主要对比维度。
 - trend：多年营收/利润/走势、近三年等时间跨度。
 - news_focus：明显侧重新闻、公告、舆情。
 - need_clarify：缺少标的或歧义大；clarify_prompt 写一句简短追问。
@@ -21,7 +24,7 @@ func SubmitParsedIntentToolInfo() *schema.ToolInfo {
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"task_kind": {
 				Type:     schema.String,
-				Desc:     "任务类型",
+				Desc:     "任务类型：查价类用 quick_look；全面分析用 deep_analysis；概念问答用 general",
 				Required: true,
 				Enum: []string{
 					string(TaskQuickLook),

@@ -181,7 +181,7 @@ func main() {
 
 	// 提供静态文件（HTML 页面）
 	http.Handle("/", http.FileServer(http.Dir("./static")))
-	log.Println("Server started at http://localhost:8080")
+	log.Println("Server started")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -517,6 +517,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 	if parsed != nil {
 		log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
 	}
+	//根据意图加载对应skills文档，构建上下文
 	skillsRoot := filepath.Join(".", "skills")
 	skillPaths := loadMatchedSkillPaths(skillsRoot, matchText, needFullReport)
 	skillsContent := prompt.LoadSkillsContent(skillPaths)
