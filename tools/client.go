@@ -8,14 +8,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
 
 // PythonBaseURL 从环境变量 STOCK_PYTHON_URL 读取，默认 http://localhost:8000；为空则使用 mock。
 func PythonBaseURL() string {
-	s := strings.TrimSuffix(os.Getenv("STOCK_PYTHON_URL"), "/")
+	c := GetStockConfig()
+	if c == nil || c.StockPython == nil || c.StockPython.BaseURL == "" {
+		return ""
+	}
+	s := strings.TrimSuffix(c.StockPython.BaseURL, "/")
 	if s != "" {
 		return s
 	}

@@ -16,6 +16,7 @@ import (
 
 	"stock-see/cronstock"
 	"stock-see/eval"
+	"stock-see/intent"
 	"stock-see/memory"
 	"stock-see/prompt"
 	"stock-see/rag"
@@ -42,6 +43,9 @@ func main() {
 	evalFlag := flag.Bool("eval", false, "运行离线评测集（读取 -eval-suite 或 config.eval.defaultSuitePath），打印均分后退出")
 	evalSuite := flag.String("eval-suite", "", "评测集 JSON 路径（默认可由 config eval.defaultSuitePath 指定）")
 	evalJSONOut := flag.String("eval-json", "", "评测汇总写入该 JSON 文件（可选）")
+	evalIntentFlag := flag.Bool("eval-intent", false, "运行意图评测集（Function Calling），打印 taskAccuracy / averageScore 后退出")
+	evalIntentSuite := flag.String("eval-intent-suite", "", "意图评测集 JSON（默认 config eval.defaultIntentSuitePath 或 data/eval/intent_suite.json）")
+	evalIntentJSONOut := flag.String("eval-intent-json", "", "意图评测汇总写入该 JSON 文件（可选）")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -92,6 +96,30 @@ func main() {
 		os.Exit(0)
 	}
 
+	if *evalIntentFlag {
+		suitePath := strings.TrimSpace(*evalIntentSuite)
+		if suitePath == "" {
+			suitePath = tools.GetEvalDefaultIntentSuitePath()
+		}
+		if suitePath == "" {
+			suitePath = "data/eval/intent_suite.json"
+		}
+		sum, err := intent.RunEval(ctx, chatModel, suitePath)
+		if err != nil {
+			log.Fatalf("意图评测失败: %v", err)
+		}
+		log.Printf("意图评测 suite=%s 用例数=%d task准确率=%.2f%% 符号集合准确率=%.2f%%（有标注=%d）综合均分=%.2f",
+			sum.SuitePath, sum.Total, sum.TaskAccuracy*100, sum.SymbolAccuracy*100, sum.SymbolCases, sum.AverageScore)
+		if p := strings.TrimSpace(*evalIntentJSONOut); p != "" {
+			b, _ := json.MarshalIndent(sum, "", "  ")
+			if err := os.WriteFile(p, b, 0644); err != nil {
+				log.Fatalf("写入 %s: %v", p, err)
+			}
+			log.Printf("已写入 %s", p)
+		}
+		os.Exit(0)
+	}
+
 	agentConfig := &adk.ChatModelAgentConfig{
 		Name:        "StockAssistant",
 		Description: "股票分析助手，可获取行情与新闻并进行分析",
@@ -118,7 +146,7 @@ func main() {
 
 	// 2. 设置路由（具体路径优先于静态文件）
 	http.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
-		handerChat(w, r, runner, fullReportTpl)
+		handerChat(w, r, runner, fullReportTpl, chatModel)
 	})
 	http.HandleFunc("/break", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/break" {
@@ -389,7 +417,7 @@ func replyJSON(w http.ResponseWriter, v any) {
 	enc.Encode(v)
 }
 
-func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, fullReportFormat string) {
+func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, fullReportFormat string, parseModel intent.ParseModel) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -475,6 +503,19 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 		} else if u != matchText {
 			matchText = matchText + "\n" + u
 		}
+	}
+	um := strings.TrimSpace(userMessage)
+	if um == "" {
+		um = matchText
+	}
+	parsed := intent.Parse(r.Context(), parseModel, intent.ParseInput{
+		UserMessage:    um,
+		SessionHistory: req.SessionHistory,
+		ExplicitSymbol: req.Symbol,
+	})
+	matchText = intent.EnrichMatchText(matchText, parsed)
+	if parsed != nil {
+		log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
 	}
 	skillsRoot := filepath.Join(".", "skills")
 	skillPaths := loadMatchedSkillPaths(skillsRoot, matchText, needFullReport)

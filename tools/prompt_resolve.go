@@ -104,3 +104,12 @@ func GetEvalDefaultSuitePath() string {
 	}
 	return strings.TrimSpace(stockConfig.Eval.DefaultSuitePath)
 }
+
+// GetEvalDefaultIntentSuitePath 返回 config 中 eval.defaultIntentSuitePath；未配置则为空。
+func GetEvalDefaultIntentSuitePath() string {
+	_ = loadStockConfig()
+	if stockConfig == nil || stockConfig.Eval == nil {
+		return ""
+	}
+	return strings.TrimSpace(stockConfig.Eval.DefaultIntentSuitePath)
+}

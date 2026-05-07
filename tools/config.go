@@ -12,10 +12,16 @@ import (
 
 // StockConfig 统一配置文件根结构。
 type StockConfig struct {
-	RAG        *RAGConfig        `json:"rag"`
-	ChatOpenAI *ChatOpenAIConfig `json:"chatOpenAI"`
-	Prompt     *PromptConfig     `json:"prompt"`
-	Eval       *EvalConfig       `json:"eval"`
+	StockPython *StockPython      `json:"stockPython"`
+	RAG         *RAGConfig        `json:"rag"`
+	ChatOpenAI  *ChatOpenAIConfig `json:"chatOpenAI"`
+	Prompt      *PromptConfig     `json:"prompt"`
+	Eval        *EvalConfig       `json:"eval"`
+}
+
+// StockPythonConfig 对应 config 中 stockPython 段。
+type StockPython struct {
+	BaseURL string `json:"baseURL"`
 }
 
 // PromptConfig 管理 SystemInstruction / FullReportOutputFormat 的多版本与当前启用版本。
@@ -39,7 +45,8 @@ type PromptVersionFields struct {
 
 // EvalConfig 离线评测默认路径等。
 type EvalConfig struct {
-	DefaultSuitePath string `json:"defaultSuitePath"`
+	DefaultSuitePath       string `json:"defaultSuitePath"`
+	DefaultIntentSuitePath string `json:"defaultIntentSuitePath"`
 }
 
 // RAGConfig 对应 config 中 rag 段。
@@ -81,7 +88,7 @@ func configPath() string {
 
 // GetStockConfig 返回已加载的完整配置（仅读）；未加载或失败时为 nil。
 func GetStockConfig() *StockConfig {
-	loadStockConfig()
+	stockConfig = loadStockConfig()
 	return stockConfig
 }
 
