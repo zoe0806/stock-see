@@ -52,6 +52,7 @@ func (t *RunTechnicalTool) InvokableRun(ctx context.Context, argumentsInJSON str
 			return FormatTechnicalResponse(s), nil
 		}
 	}
+	fmt.Println("[technical]  成功", in.Symbol)
 	return marshalError("Python 未配置或 technical 接口调用失败，请设置 STOCK_PYTHON_URL 并启动 Python 服务")
 }
 
@@ -66,7 +67,7 @@ func FormatTechnicalResponse(raw string) string {
 	if report != "" {
 		b.WriteString(report)
 	}
-	fmt.Println("FormatTechnicalResponse", strings.TrimSpace(b.String()))
+	//fmt.Println("FormatTechnicalResponse", strings.TrimSpace(b.String()))
 	return strings.TrimSpace(b.String())
 }
 
@@ -129,6 +130,7 @@ func (t *RunFundamentalTool) InvokableRun(ctx context.Context, argumentsInJSON s
 		}
 		return marshalError("fundamental 接口调用失败: " + err.Error())
 	}
+	fmt.Println("[fundamental] 成功", in.Symbol)
 	return marshalError("Python 未配置或 fundamental 接口调用失败")
 }
 
@@ -239,6 +241,7 @@ func (t *RunMarketTrendTool) InvokableRun(ctx context.Context, argumentsInJSON s
 			return FormatMarketTrendResponse(s), nil
 		}
 	}
+	fmt.Println("[market-trend] 成功")
 	return marshalError("Python 未配置或 market_trend 接口调用失败")
 }
 
@@ -306,6 +309,7 @@ func (t *RunSectorTool) InvokableRun(ctx context.Context, argumentsInJSON string
 			return s, nil
 		}
 	}
+	fmt.Println("[sector] 成功", in.Symbol)
 	return marshalError("Python 未配置或 sector 接口调用失败")
 }
 
@@ -362,6 +366,7 @@ func (t *RunPatternTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 			return FormatPatternResponse(s), nil
 		}
 	}
+	fmt.Println("[pattern] 成功", in.Symbol)
 	return marshalError("Python 未配置或 pattern 接口调用失败")
 }
 
@@ -528,6 +533,7 @@ func (t *RunScoringTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 			return FormatScoringResponse(s), nil
 		}
 	}
+	fmt.Println("[scoring] 成功", in.Symbol)
 	return marshalError("Python 未配置或 score 接口调用失败")
 }
 

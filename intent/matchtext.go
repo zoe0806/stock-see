@@ -76,8 +76,18 @@ func EnrichMatchText(rawUser string, p *ParsedIntent) string {
 		add("行情")
 		add("现价")
 	case TaskDeepAnalysis:
+		add("新闻")
+		add("风险")
+		add("综合评分")
+		add("行情")
+	case TaskFundamental:
 		add("基本面")
+	case TaskTechnical:
 		add("技术面")
+	case TaskSentiment:
+		add("资金面")
+	case TaskSector:
+		add("板块")
 	case TaskNeedClarify:
 		if p.ClarifyPrompt != "" {
 			add(p.ClarifyPrompt)

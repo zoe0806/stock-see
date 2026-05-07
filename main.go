@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +25,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/eino-ext/components/model/openai" //openai模型
+	"github.com/cloudwego/eino/compose"
 )
 
 // loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json；
@@ -107,8 +107,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("意图评测失败: %v", err)
 		}
-		log.Printf("意图评测 suite=%s 用例数=%d task准确率=%.2f%% 符号集合准确率=%.2f%%（有标注=%d）综合均分=%.2f",
-			sum.SuitePath, sum.Total, sum.TaskAccuracy*100, sum.SymbolAccuracy*100, sum.SymbolCases, sum.AverageScore)
+		log.Printf("意图评测 suite=%s 用例数=%d task=%.2f%% symbols=%.2f%%（n=%d） hints=%.2f%%（n=%d）均分=%.2f",
+			sum.SuitePath, sum.Total, sum.TaskAccuracy*100, sum.SymbolAccuracy*100, sum.SymbolCases,
+			sum.HintAccuracy*100, sum.HintCases, sum.AverageScore)
 		if p := strings.TrimSpace(*evalIntentJSONOut); p != "" {
 			b, _ := json.MarshalIndent(sum, "", "  ")
 			if err := os.WriteFile(p, b, 0644); err != nil {
@@ -121,16 +122,15 @@ func main() {
 
 	agentConfig := &adk.ChatModelAgentConfig{
 		Name:        "StockAssistant",
-		Description: "股票分析助手，可获取行情与新闻并进行分析",
+		Description: "股票分析助手",
 		Instruction: sysTpl,
 		Model:       chatModel,
 	}
-	// agentConfig.ToolsConfig = adk.ToolsConfig{
-	// 	ToolsNodeConfig: compose.ToolsNodeConfig{
-	// 		Tools: tools.StockTools(),
-	// 	},
-	// }
-	log.Println("股票助手: 已启用工具 get_market_data / get_news")
+	agentConfig.ToolsConfig = adk.ToolsConfig{
+		ToolsNodeConfig: compose.ToolsNodeConfig{
+			Tools: tools.StockTools(),
+		},
+	}
 
 	agent, err := adk.NewChatModelAgent(ctx, agentConfig)
 	if err != nil {
@@ -439,15 +439,15 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 
 	userMessage := req.Message
 
-	marketCtx := ""
-	newsCtx := ""
+	// marketCtx := ""
+	// newsCtx := ""
 	memoryContent := req.Memory
 	extraCtx := req.Context
 
 	needFullReport := (req.Mode == "full" || req.Mode == "full_report") && req.Symbol != ""
 
 	if req.Symbol != "" {
-		marketCtx = tools.GetMarketDataMock(req.Symbol)
+		//marketCtx = tools.GetMarketDataMock(req.Symbol)
 		//newsCtx = tools.GetNewsMock(req.Symbol, 5)
 		if memoryContent == "" {
 			memoryContent = memory.FormatMemoryWithLastReport(req.Symbol)
@@ -512,25 +512,38 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 		SessionHistory: req.SessionHistory,
 		ExplicitSymbol: req.Symbol,
 	})
-	matchText = intent.EnrichMatchText(matchText, parsed)
-	if parsed != nil {
-		log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
+	fmt.Println("parsed", parsed.SkillHints)
+	// 按意图 skill_hints 在后端直接执行对应工具，结果注入 Extra（全量报告已并行拉数，避免重复）
+	if !needFullReport && parsed != nil && len(parsed.SkillHints) > 0 {
+		sym := strings.TrimSpace(req.Symbol)
+		if sym == "" && len(parsed.Symbols) > 0 {
+			sym = parsed.Symbols[0]
+		}
+		if block := tools.RunSkillHintsTools(r.Context(), sym, um, parsed.SkillHints); block != "" {
+			if extraCtx != "" {
+				extraCtx += "\n\n---\n\n"
+			}
+			extraCtx += "## 意图技能预取（skill_hints → 工具执行结果）\n\n以下由服务端按意图已调用 Python/工具生成，请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
+		}
 	}
 	//根据意图加载对应skills文档，构建上下文
-	skillsRoot := filepath.Join(".", "skills")
-	skillPaths := loadMatchedSkillPaths(skillsRoot, matchText, needFullReport)
-	skillsContent := prompt.LoadSkillsContent(skillPaths)
+	// matchText = intent.EnrichMatchText(matchText, parsed)
+	// if parsed != nil {
+	// 	log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
+	// }
+	// skillsRoot := filepath.Join(".", "skills")
+	// skillPaths := loadMatchedSkillPaths(skillsRoot, matchText, needFullReport)
+	// skillsContent := prompt.LoadSkillsContent(skillPaths)
 
 	contextBlock := prompt.BuildContext(prompt.ContextInput{
 		SessionHistory: req.SessionHistory,
 		Workspace:      req.Workspace,
 		Memory:         memoryContent,
-		MarketContext:  marketCtx,
-		NewsContext:    newsCtx,
-		Skills:         skillsContent,
+		MarketContext:  "",
+		NewsContext:    "",
+		Skills:         "",
 		Extra:          extraCtx,
 	})
-
 	messages := []*schema.Message{schema.UserMessage(userMessage)}
 	iterator := runner.Run(r.Context(), messages, adk.WithSessionValues(map[string]any{
 		"Context": contextBlock,

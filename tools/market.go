@@ -109,6 +109,7 @@ func (t *GetNewsTool) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		"items":  items,
 		"remark": "Python 未配置或调用失败。",
 	}
+	log.Printf("[news] symbol=%s 成功", in.Symbol)
 	return toJSON(out)
 }
 
@@ -234,15 +235,15 @@ func FormatNewsResponse(raw string) string {
 func StockTools() []tool.BaseTool {
 	return []tool.BaseTool{
 		&GetMarketDataTool{},
-		// &GetNewsTool{},
+		&GetNewsTool{},
 		&RunAnalysisParallelTool{},
-		// &RunTechnicalTool{},
-		// &RunFundamentalTool{},
-		//&RunNewsTool{},
-		// &RunSentimentTool{},
-		// &RunMarketTrendTool{},
-		// &RunSectorTool{},
-		// &RunPatternTool{},
+		&RunTechnicalTool{},
+		&RunFundamentalTool{},
+		&RunNewsTool{},
+		&RunSentimentTool{},
+		&RunMarketTrendTool{},
+		&RunSectorTool{},
+		&RunPatternTool{},
 		&RunScoringTool{},
 	}
 }

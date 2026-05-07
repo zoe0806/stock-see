@@ -13,6 +13,10 @@ const (
 	TaskGeneral      TaskKind = "general"       // 一般股票问答（默认）
 	TaskNeedClarify  TaskKind = "need_clarify"  // 信息不足需澄清
 	TaskOffTopic     TaskKind = "off_topic"     // 与个股分析无关
+	TaskFundamental  TaskKind = "fundamental"   // 基本面分析
+	TaskTechnical    TaskKind = "technical"     // 技术面分析
+	TaskSentiment    TaskKind = "sentiment"     // 资金面分析
+	TaskSector       TaskKind = "sector"        // 板块分析
 )
 
 // ParsedIntent 模型解析后的结构化意图（经校验、规范化）。

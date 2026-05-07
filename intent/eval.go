@@ -26,20 +26,23 @@ type IntentEvalCase struct {
 	Expected    IntentExpected  `json:"expected"`
 }
 
-// IntentExpected 评测期望（宽松：task_kind 必填；symbols 非空则集合须一致）。
+// IntentExpected 评测期望（task_kind 必填；symbols / skill_hints 非空时分别校验）。
+// skill_hints：期望的维度须全部出现在解析结果中（可多不可少，大小写不敏感）。
 type IntentExpected struct {
-	TaskKind string   `json:"task_kind"`
-	Symbols  []string `json:"symbols,omitempty"`
+	TaskKind   string   `json:"task_kind"`
+	Symbols    []string `json:"symbols,omitempty"`
+	SkillHints []string `json:"skill_hints,omitempty"`
 }
 
 // IntentEvalResult 单条结果。
 type IntentEvalResult struct {
-	ID           string       `json:"id"`
-	OKTask       bool         `json:"okTask"`
-	OKSymbols    bool         `json:"okSymbols"`
-	Score        float64      `json:"score"` // 0~1
+	ID           string        `json:"id"`
+	OKTask       bool          `json:"okTask"`
+	OKSymbols    bool          `json:"okSymbols"`
+	OKHints      bool          `json:"okHints"`
+	Score        float64       `json:"score"` // 0~1，按 task / symbols / hints 有标注的项加权平均
 	Got          *ParsedIntent `json:"got,omitempty"`
-	Notes        string       `json:"notes,omitempty"`
+	Notes        string        `json:"notes,omitempty"`
 }
 
 // IntentEvalSummary 汇总。
@@ -47,9 +50,11 @@ type IntentEvalSummary struct {
 	SuitePath        string             `json:"suitePath"`
 	Total            int                `json:"total"`
 	TaskAccuracy     float64            `json:"taskAccuracy"`
-	SymbolAccuracy   float64            `json:"symbolAccuracy"`   // 仅统计 expected.symbols 非空的用例
+	SymbolAccuracy   float64            `json:"symbolAccuracy"` // 仅统计 expected.symbols 非空的用例
 	SymbolCases      int                `json:"symbolCases"`
-	AverageScore     float64            `json:"averageScore"`    // 每条：task对=0.6 symbol对=0.4（无symbol期望时仅task=1）
+	HintAccuracy     float64            `json:"hintAccuracy"` // 仅统计 expected.skill_hints 非空的用例
+	HintCases        int                `json:"hintCases"`
+	AverageScore     float64            `json:"averageScore"`
 	Results          []IntentEvalResult `json:"results"`
 }
 
@@ -81,6 +86,7 @@ func RunEval(ctx context.Context, cm ParseModel, suitePath string) (*IntentEvalS
 		Results:   make([]IntentEvalResult, 0, len(su.Cases)),
 	}
 	var taskHits, symHits, symTotal int
+	var hintHits, hintTotal int
 	var scoreSum float64
 	for _, c := range su.Cases {
 		in := ParseInput{
@@ -110,24 +116,41 @@ func RunEval(ctx context.Context, cm ParseModel, suitePath string) (*IntentEvalS
 				symHits++
 			}
 		} else {
-			res.OKSymbols = true // 无期望时不扣分
+			res.OKSymbols = true // 无期望时不参与该项
 		}
-		// 打分：任务正确 0.6；若本用例要求 symbols，符号集合正确再加 0.4，否则任务正确即 1.0
-		if len(expSyms) > 0 {
-			if res.OKTask && res.OKSymbols {
-				res.Score = 1
-			} else if res.OKTask {
-				res.Score = 0.6
-			} else {
-				res.Score = 0
+
+		expHints := normalizeEvalHints(c.Expected.SkillHints)
+		if len(expHints) > 0 {
+			hintTotal++
+			gotHints := normalizeEvalHints(got.SkillHints)
+			res.OKHints = skillHintsContainAll(gotHints, expHints)
+			if res.OKHints {
+				hintHits++
 			}
 		} else {
-			if res.OKTask {
-				res.Score = 1
-			} else {
-				res.Score = 0
+			res.OKHints = true
+		}
+
+		// 打分：对「有标注」的维度等权平均（至少 task）
+		var parts float64
+		var ok float64
+		parts++
+		if res.OKTask {
+			ok++
+		}
+		if len(expSyms) > 0 {
+			parts++
+			if res.OKSymbols {
+				ok++
 			}
 		}
+		if len(expHints) > 0 {
+			parts++
+			if res.OKHints {
+				ok++
+			}
+		}
+		res.Score = ok / parts
 		scoreSum += res.Score
 		out.Results = append(out.Results, res)
 	}
@@ -139,7 +162,49 @@ func RunEval(ctx context.Context, cm ParseModel, suitePath string) (*IntentEvalS
 		out.SymbolAccuracy = float64(symHits) / float64(symTotal)
 	}
 	out.SymbolCases = symTotal
+	if hintTotal > 0 {
+		out.HintAccuracy = float64(hintHits) / float64(hintTotal)
+	}
+	out.HintCases = hintTotal
 	return out, nil
+}
+
+func normalizeEvalHints(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	var out []string
+	for _, s := range in {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// skillHintsContainAll 要求 got 中（规范化后）包含 expected 中的每一项（允许多出）。
+func skillHintsContainAll(gotNorm, expNorm []string) bool {
+	if len(expNorm) == 0 {
+		return true
+	}
+	set := make(map[string]struct{}, len(gotNorm))
+	for _, h := range gotNorm {
+		set[h] = struct{}{}
+	}
+	for _, h := range expNorm {
+		if _, ok := set[h]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func stringSliceEqualSet(a, b []string) bool {

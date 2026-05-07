@@ -17,6 +17,10 @@ var allowedTask = map[TaskKind]struct{}{
 	TaskGeneral:      {},
 	TaskNeedClarify:  {},
 	TaskOffTopic:     {},
+	TaskFundamental:  {},
+	TaskTechnical:    {},
+	TaskSentiment:    {},
+	TaskSector:       {},
 }
 
 var allowedCompareAxis = map[string]struct{}{
@@ -87,8 +91,46 @@ func ValidateAndPatch(p *ParsedIntent, userMessage string) {
 		}
 	}
 	p.SkillHints = dedupeTrim(p.SkillHints)
+	syncSkillHintsFromTaskKind(p)
+	p.SkillHints = dedupeTrim(p.SkillHints)
 	p.SymbolNames = dedupeTrim(p.SymbolNames)
 	p.Valid = true
+}
+
+// syncSkillHintsFromTaskKind 模型常把单维度写在 task_kind 却漏填 skill_hints；后端预取工具依赖 skill_hints，此处按 task_kind 补一条主维度。
+func syncSkillHintsFromTaskKind(p *ParsedIntent) {
+	if p == nil {
+		return
+	}
+	hint := primarySkillHintForTaskKind(p.TaskKind)
+	if hint == "" {
+		return
+	}
+	for _, h := range p.SkillHints {
+		if strings.EqualFold(strings.TrimSpace(h), hint) {
+			return
+		}
+	}
+	p.SkillHints = append([]string{hint}, p.SkillHints...)
+}
+
+func primarySkillHintForTaskKind(k TaskKind) string {
+	switch k {
+	case TaskTechnical:
+		return "technical"
+	case TaskFundamental:
+		return "fundamental"
+	case TaskSentiment:
+		return "sentiment"
+	case TaskSector:
+		return "sector"
+	case TaskNewsFocus:
+		return "news"
+	case TaskQuickLook:
+		return "realtime-market"
+	default:
+		return ""
+	}
 }
 
 func dedupeTrim(in []string) []string {
