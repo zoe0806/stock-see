@@ -14,9 +14,17 @@ import (
 type StockConfig struct {
 	StockPython *StockPython      `json:"stockPython"`
 	RAG         *RAGConfig        `json:"rag"`
+	Intent      *IntentConfig     `json:"intent"`
 	ChatOpenAI  *ChatOpenAIConfig `json:"chatOpenAI"`
 	Prompt      *PromptConfig     `json:"prompt"`
 	Eval        *EvalConfig       `json:"eval"`
+}
+
+// IntentConfig 对话意图侧可选行为（与资讯 RAG 的 rag.enabled 独立）。
+type IntentConfig struct {
+	// KnowledgeRAGEnabled 为 false 时不检索 knowledge.json 向量索引，不向意图 FC 注入 KB 摘要，也不走「RAG 命中 intent → 跳过 FC」短路。
+	// JSON 省略该字段时默认开启，与历史行为一致。
+	KnowledgeRAGEnabled *bool `json:"knowledgeRagEnabled"`
 }
 
 // StockPythonConfig 对应 config 中 stockPython 段。
@@ -106,6 +114,28 @@ func RAGEnabled() bool {
 		return true // 无 config 时保持原行为
 	}
 	return c.Enabled
+}
+
+const intentKbRAGEnv = "STOCK_INTENT_KB_RAG"
+
+// IntentKnowledgeRAGEnabled 是否启用「知识库 RAG → 意图」链路（检索、FC 前置 KB 摘要、RAG intent 短路）。
+// 优先环境变量 STOCK_INTENT_KB_RAG：0/false/off 关闭，1/true/on 开启；未设置则读 config intent.knowledgeRagEnabled（默认 true）。
+func IntentKnowledgeRAGEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv(intentKbRAGEnv)); v != "" {
+		switch strings.ToLower(v) {
+		case "0", "false", "off", "no":
+			return false
+		case "1", "true", "on", "yes":
+			return true
+		default:
+			// 未识别的值回退到配置文件
+		}
+	}
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.KnowledgeRAGEnabled == nil {
+		return true
+	}
+	return *c.Intent.KnowledgeRAGEnabled
 }
 
 func loadStockConfig() *StockConfig {

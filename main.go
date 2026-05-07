@@ -16,6 +16,7 @@ import (
 	"stock-see/cronstock"
 	"stock-see/eval"
 	"stock-see/intent"
+	"stock-see/kb"
 	"stock-see/memory"
 	"stock-see/prompt"
 	"stock-see/rag"
@@ -420,24 +421,99 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	if um == "" {
 		um = matchText
 	}
-	parsed := intent.Parse(r.Context(), parseModel, intent.ParseInput{
-		UserMessage:    um,
-		SessionHistory: req.SessionHistory,
-		ExplicitSymbol: req.Symbol,
-	})
-	fmt.Println("parsed", parsed.SkillHints)
-	// 按意图 skill_hints 在后端直接执行对应工具，结果注入 Extra
-	if parsed != nil && len(parsed.SkillHints) > 0 {
-		sym := strings.TrimSpace(req.Symbol)
-		if sym == "" && len(parsed.Symbols) > 0 {
-			sym = parsed.Symbols[0]
-		}
-		if block := tools.RunSkillHintsTools(r.Context(), sym, um, parsed.SkillHints); block != "" {
-			if extraCtx != "" {
-				extraCtx += "\n\n"
+
+	// knowledge.json RAG：可选（config intent.knowledgeRagEnabled / STOCK_INTENT_KB_RAG）；关闭时意图仅走 FC，不查 Redis 知识索引。
+	var kbHits []kb.Hit
+	var kbBlock string
+	if tools.IntentKnowledgeRAGEnabled() {
+		var kbQuery strings.Builder
+		kbQuery.WriteString(um)
+		if h := strings.TrimSpace(req.SessionHistory); h != "" {
+			if len(h) > 1500 {
+				h = h[:1500] + "…"
 			}
-			extraCtx += "##请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
+			kbQuery.WriteString("\n")
+			kbQuery.WriteString(h)
 		}
+		const kbTopK = 6
+		var kbSearchErr error
+		kbHits, kbSearchErr = kb.DefaultKnowledgeIndex().Search(r.Context(), kbQuery.String(), kbTopK)
+		if kbSearchErr != nil {
+			log.Printf("[kb-rag] 检索跳过: %v", kbSearchErr)
+		}
+		kbBlock = kb.FormatRAGBlock(kbHits)
+	}
+	// if kbBlock != "" {
+	// 	section := "## 知识库 RAG 检索\n\n" + kbBlock
+	// 	if extraCtx != "" {
+	// 		extraCtx = section + "\n\n" + extraCtx
+	// 	} else {
+	// 		extraCtx = section
+	// 	}
+	// }
+	//log.Println("kbHits", kbHits)
+	// log.Println("kbBlock", kbBlock)
+	//log.Println("extraCtx", extraCtx)
+
+	// RAG 已命中 intent:* 文档并推出 skill_hints 时，不再调用意图 FC，避免重复推理与延迟。
+	ragSkillHints := kb.SkillHintsFromHits(kbHits)
+	log.Println("ragSkillHints", ragSkillHints, len(ragSkillHints))
+	var parsed *intent.ParsedIntent
+	if len(ragSkillHints) > 0 {
+		parsed = &intent.ParsedIntent{
+			TaskKind:   intent.TaskGeneral,
+			SkillHints: ragSkillHints,
+			Source:     "rag_kb",
+		}
+		if c := kb.TopStockCodeFromHits(kbHits); c != "" {
+			parsed.Symbols = intent.NormalizeSymbols([]string{c})
+		}
+		intent.MergeExplicitSymbol(parsed, req.Symbol)
+		intent.ValidateAndPatch(parsed, um)
+	} else {
+		parsed = intent.Parse(r.Context(), parseModel, intent.ParseInput{
+			UserMessage:    um,
+			SessionHistory: req.SessionHistory,
+			ExplicitSymbol: req.Symbol,
+			KBContext:      kbBlock,
+		})
+		if parsed != nil && len(parsed.Symbols) == 0 {
+			if c := kb.TopStockCodeFromHits(kbHits); c != "" {
+				parsed.Symbols = intent.NormalizeSymbols([]string{c})
+			}
+		}
+	}
+	// 轻量问句：约束回复形态，避免预取块较少时模型仍写长篇「综合研判」
+	// if parsed != nil && parsed.TaskKind != intent.TaskDeepAnalysis {
+	// 	brief := "## 本轮为轻量行情/现价类意图，请直接、简短回答（数句即可），不要套用多维「综合研判报告」体例，除非用户明确要求深度分析。\n\n"
+	// 	if extraCtx != "" {
+	// 		extraCtx = brief + extraCtx
+	// 	} else {
+	// 		extraCtx = brief
+	// 	}
+	// }
+	if parsed != nil {
+		fmt.Println("parsed", parsed.Source, parsed.TaskKind, parsed.SkillHints)
+	} else {
+		fmt.Println("parsed", nil)
+	}
+
+	sym := strings.TrimSpace(req.Symbol)
+	if sym == "" && parsed != nil && len(parsed.Symbols) > 0 {
+		sym = parsed.Symbols[0]
+	}
+	if sym == "" {
+		sym = kb.TopStockCodeFromHits(kbHits)
+	}
+	var skillHints []string
+	if parsed != nil {
+		skillHints = parsed.SkillHints
+	}
+	if block := tools.RunSkillHintsTools(r.Context(), sym, um, skillHints); block != "" {
+		if extraCtx != "" {
+			extraCtx += "\n\n"
+		}
+		extraCtx += "##请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
 	}
 	//根据意图加载对应skills文档，构建上下文
 	// matchText = intent.EnrichMatchText(matchText, parsed)
