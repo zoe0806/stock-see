@@ -45,9 +45,43 @@ func main() {
 	evalIntentFlag := flag.Bool("eval-intent", false, "运行意图评测集（Function Calling），打印 taskAccuracy / averageScore 后退出")
 	evalIntentSuite := flag.String("eval-intent-suite", "", "意图评测集 JSON（默认 config eval.defaultIntentSuitePath 或 data/eval/intent_suite.json）")
 	evalIntentJSONOut := flag.String("eval-intent-json", "", "意图评测汇总写入该 JSON 文件（可选）")
+	evalRetrievalFlag := flag.Bool("eval-retrieval", false, "运行检索评测（Redis+embedding），对比 vector / hybrid / hybrid_rerank 的 Hit@K 后退出（无需对话模型）")
+	evalRetrievalSuite := flag.String("eval-retrieval-suite", "", "检索评测集 JSON（默认 config eval.defaultRetrievalSuitePath 或 data/eval/retrieval_suite.json）")
+	evalRetrievalJSONOut := flag.String("eval-retrieval-json", "", "检索评测汇总写入该 JSON（可选）")
+	evalRetrievalVerbose := flag.Bool("eval-retrieval-verbose", false, "检索评测输出逐条 Top 标题与是否命中")
 	flag.Parse()
 
 	ctx := context.Background()
+
+	if *evalRetrievalFlag {
+		suitePath := strings.TrimSpace(*evalRetrievalSuite)
+		if suitePath == "" {
+			suitePath = tools.GetEvalDefaultRetrievalSuitePath()
+		}
+		if suitePath == "" {
+			suitePath = "data/eval/retrieval_suite.json"
+		}
+		rc, err := rag.NewWithRedisFromEnv("")
+		if err != nil {
+			log.Fatalf("检索评测需要 Redis: %v", err)
+		}
+		sum, err := rag.RunRetrievalEval(ctx, rc, suitePath, *evalRetrievalVerbose)
+		if err != nil {
+			log.Fatalf("检索评测失败: %v", err)
+		}
+		for _, m := range sum.ByMode {
+			log.Printf("检索评测 [%s] Hit@%d=%.2f%% (%d/%d)", m.Mode, m.K, m.HitRate*100, m.HitCount, m.Cases)
+		}
+		if p := strings.TrimSpace(*evalRetrievalJSONOut); p != "" {
+			b, _ := json.MarshalIndent(sum, "", "  ")
+			if err := os.WriteFile(p, b, 0644); err != nil {
+				log.Fatalf("写入 %s: %v", p, err)
+			}
+			log.Printf("已写入 %s", p)
+		}
+		os.Exit(0)
+	}
+
 	chatCfg := tools.GetChatOpenAIConfig()
 	if chatCfg == nil || chatCfg.Model == "" || chatCfg.APIKey == "" {
 		log.Fatalf("请在 config/stock.json 或 config/stock.example.json 中配置 chatOpenAI（model、apiKey、baseURL）")

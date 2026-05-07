@@ -289,8 +289,25 @@ func (c *Client) Search(ctx context.Context, code, dateFrom, dateTo string, limi
 	return parseSearchResult(res, dateFrom, dateTo, limit, 0)
 }
 
-// SearchByQuery 混合检索：向量 KNN + RediSearch 词法/BM25（title|summary），RRF 融合后按规则重排；可选按 code、date 过滤。
+// SearchMode 语义检索策略（用于 SearchByQueryMode 与离线检索评测消融）。
+type SearchMode string
+
+const (
+	// SearchModeVector 仅向量 KNN（idx:rag:news_v），按相似度截断。
+	SearchModeVector SearchMode = "vector"
+	// SearchModeHybrid 向量 + BM25，RRF 融合，无规则重排。
+	SearchModeHybrid SearchMode = "hybrid"
+	// SearchModeHybridRerank 向量 + BM25，RRF 融合 + 标题/时效/来源等规则重排（默认，与原 SearchByQuery 一致）。
+	SearchModeHybridRerank SearchMode = "hybrid_rerank"
+)
+
+// SearchByQuery 等价于 SearchByQueryMode(..., SearchModeHybridRerank, ...)。
 func (c *Client) SearchByQuery(ctx context.Context, query, code, dateFrom, dateTo string, limit int) ([]SearchResult, error) {
+	return c.SearchByQueryMode(ctx, SearchModeHybridRerank, query, code, dateFrom, dateTo, limit)
+}
+
+// SearchByQueryMode 按策略执行语义检索；query 为空时退化为 Search（非向量）。
+func (c *Client) SearchByQueryMode(ctx context.Context, mode SearchMode, query, code, dateFrom, dateTo string, limit int) ([]SearchResult, error) {
 	if c.rdb == nil {
 		return nil, fmt.Errorf("redis not configured")
 	}
@@ -318,6 +335,10 @@ func (c *Client) SearchByQuery(ctx context.Context, query, code, dateFrom, dateT
 		return nil, fmt.Errorf("vector search: %w", err)
 	}
 
+	if mode == SearchModeVector {
+		return trimSearchResults(vecRes, limit), nil
+	}
+
 	var lexRes []SearchResult
 	if buildLexicalRediSearchQuery(code, query) != "" {
 		var errLex error
@@ -328,8 +349,24 @@ func (c *Client) SearchByQuery(ctx context.Context, query, code, dateFrom, dateT
 		}
 	}
 
-	out := mergeHybridResults(query, vecRes, lexRes, limit)
-	return out, nil
+	switch mode {
+	case SearchModeHybrid:
+		return mergeHybridRRFOnly(vecRes, lexRes, limit), nil
+	case SearchModeHybridRerank, "":
+		return mergeHybridResults(query, vecRes, lexRes, limit), nil
+	default:
+		return mergeHybridResults(query, vecRes, lexRes, limit), nil
+	}
+}
+
+func trimSearchResults(res []SearchResult, limit int) []SearchResult {
+	if limit <= 0 {
+		limit = 10
+	}
+	if len(res) > limit {
+		return res[:limit]
+	}
+	return res
 }
 
 // parseSearchResult 解析 FT.SEARCH 返回。支持两种格式：

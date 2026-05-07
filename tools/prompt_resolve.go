@@ -113,3 +113,12 @@ func GetEvalDefaultIntentSuitePath() string {
 	}
 	return strings.TrimSpace(stockConfig.Eval.DefaultIntentSuitePath)
 }
+
+// GetEvalDefaultRetrievalSuitePath 返回 eval.defaultRetrievalSuitePath；未配置则为空。
+func GetEvalDefaultRetrievalSuitePath() string {
+	_ = loadStockConfig()
+	if stockConfig == nil || stockConfig.Eval == nil {
+		return ""
+	}
+	return strings.TrimSpace(stockConfig.Eval.DefaultRetrievalSuitePath)
+}

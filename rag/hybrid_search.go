@@ -561,6 +561,39 @@ type scoredKey struct {
 	score float64
 }
 
+// mergeHybridRRFOnly 仅 RRF 融合（无标题/时效/来源等规则重排），用于检索消融实验。
+func mergeHybridRRFOnly(vecRes, lexRes []SearchResult, finalLimit int) []SearchResult {
+	vecKeys := rankKeysOrder(vecRes)
+	lexKeys := rankKeysOrder(lexRes)
+	rrf := rrfScores(vecKeys, lexKeys, rrfK)
+	items := mergeItems(vecRes, lexRes)
+	var sk []scoredKey
+	for key, score := range rrf {
+		if _, ok := items[key]; !ok {
+			continue
+		}
+		sk = append(sk, scoredKey{key: key, score: score})
+	}
+	sort.Slice(sk, func(i, j int) bool {
+		if sk[i].score != sk[j].score {
+			return sk[i].score > sk[j].score
+		}
+		return sk[i].key < sk[j].key
+	})
+	if finalLimit <= 0 {
+		finalLimit = 10
+	}
+	if len(sk) > finalLimit {
+		sk = sk[:finalLimit]
+	}
+	out := make([]SearchResult, 0, len(sk))
+	for _, s := range sk {
+		it := items[s.key]
+		out = append(out, SearchResult{Key: s.key, Item: it, Score: s.score})
+	}
+	return out
+}
+
 // mergeHybridResults RRF + 规则重排 + 截断。
 func mergeHybridResults(query string, vecRes, lexRes []SearchResult, finalLimit int) []SearchResult {
 	vecKeys := rankKeysOrder(vecRes)

@@ -45,8 +45,9 @@ type PromptVersionFields struct {
 
 // EvalConfig 离线评测默认路径等。
 type EvalConfig struct {
-	DefaultSuitePath       string `json:"defaultSuitePath"`
-	DefaultIntentSuitePath string `json:"defaultIntentSuitePath"`
+	DefaultSuitePath          string `json:"defaultSuitePath"`
+	DefaultIntentSuitePath    string `json:"defaultIntentSuitePath"`
+	DefaultRetrievalSuitePath string `json:"defaultRetrievalSuitePath"`
 }
 
 // RAGConfig 对应 config 中 rag 段。

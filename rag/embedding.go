@@ -2,22 +2,18 @@
 package rag
 
 import (
-	"stock-see/tools"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"stock-see/tools"
 	"strings"
 	"time"
 )
 
 // Embed 将文本转为向量。
-//   - OpenAI 兼容：POST /embeddings（input）
-//     "embeddingUrl": "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal",
-//     "embeddingApiKey": "d42f4921-dc33-4e2b-9748-77c596514655",
-//     "embeddingModel": "doubao-embedding-vision-250615",
 //   - Ollama：POST /api/embeddings（prompt）或 /api/embed（input）
 //
 // text 为空时返回 nil, nil。
