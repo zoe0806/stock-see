@@ -1,4 +1,4 @@
-// Package tools 实现 run_technical、run_fundamental、run_news、run_scoring（Phase 2 对接 Python）。
+// Package tools 实现 run_technical、run_fundamental、run_news、run_scoring。
 package tools
 
 import (

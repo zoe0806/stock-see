@@ -229,8 +229,6 @@ func FormatNewsResponse(raw string) string {
 }
 
 // StockTools 所需工具：行情、新闻、技术、基本面、消息面、情绪资金面、大盘、板块、形态、综合评分。
-// 突破评分暂时不纳入工具列表，后续根据需要引入 RunBreakoutScoreTool
-// todo: RunAnalysisParallelTool已经进行多维度分析，不需要再进行技术、基本面、消息面、情绪资金面、大盘、板块、形态的分析，所以这里先注销了，因为很浪费token，但是注销以后出来的质量差很多
 func StockTools() []tool.BaseTool {
 	return []tool.BaseTool{
 		&GetMarketDataTool{},
