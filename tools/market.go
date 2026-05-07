@@ -229,6 +229,8 @@ func FormatNewsResponse(raw string) string {
 }
 
 // StockTools 所需工具：行情、新闻、技术、基本面、消息面、情绪资金面、大盘、板块、形态、综合评分。
+// StockTools 注册 Agent 可**执行**的工具。SKILL.md 仅注入说明文本，不会请求行情接口；
+// 意图解析的 Function Calling 只产出槽位，同样不调 get_market_data。三者不重复。
 func StockTools() []tool.BaseTool {
 	return []tool.BaseTool{
 		&GetMarketDataTool{},

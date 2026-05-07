@@ -20,14 +20,14 @@ var allowedTask = map[TaskKind]struct{}{
 }
 
 var allowedCompareAxis = map[string]struct{}{
-	"":         {},
-	"pe":       {},
-	"pb":       {},
-	"price":    {},
-	"revenue":  {},
-	"profit":   {},
-	"roe":      {},
-	"general":  {},
+	"":        {},
+	"pe":      {},
+	"pb":      {},
+	"price":   {},
+	"revenue": {},
+	"profit":  {},
+	"roe":     {},
+	"general": {},
 }
 
 // NormalizeSymbols 去重、排序，仅保留 6 位数字。

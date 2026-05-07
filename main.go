@@ -23,7 +23,6 @@ import (
 	"stock-see/tools"
 
 	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/eino-ext/components/model/openai" //openai模型
@@ -126,11 +125,11 @@ func main() {
 		Instruction: sysTpl,
 		Model:       chatModel,
 	}
-	agentConfig.ToolsConfig = adk.ToolsConfig{
-		ToolsNodeConfig: compose.ToolsNodeConfig{
-			Tools: tools.StockTools(),
-		},
-	}
+	// agentConfig.ToolsConfig = adk.ToolsConfig{
+	// 	ToolsNodeConfig: compose.ToolsNodeConfig{
+	// 		Tools: tools.StockTools(),
+	// 	},
+	// }
 	log.Println("股票助手: 已启用工具 get_market_data / get_news")
 
 	agent, err := adk.NewChatModelAgent(ctx, agentConfig)
@@ -573,14 +572,14 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 			}
 		} else if out.Message != nil && out.Message.Content != "" {
 			//AI model tools 工具调用返回回复
-			// 【光迅科技】 002281 最新价: 88.94  涨跌幅: -10.00%成交量: 88.61万今开: 93.10  最高: 94.99  最低: 88.94
+
 			//fullReply.WriteString(out.Message.Content)
 			//writeSSEData("message", out.Message.Content)
 			//fmt.Println("out.Message", out.Message.Content)
 			//flusher.Flush()
 		}
 	}
-	// Phase 1：若有 symbol 且本轮有回复，写入 memory/stock/<symbol>/<date>.md
+	// 若有 symbol 且本轮有回复，写入 memory/stock/<symbol>/<date>.md
 	if req.Symbol != "" && fullReply.Len() > 0 {
 		_ = memory.WriteStockMemory(req.Symbol, "", fullReply.String())
 	}
