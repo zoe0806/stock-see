@@ -186,13 +186,7 @@ func main() {
 		}
 		http.ServeFile(w, r, "./static/break.html")
 	})
-	http.HandleFunc("/cron-stock", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/cron-stock" {
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, "./static/cron-stock.html")
-	})
+
 	http.HandleFunc("/rag", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rag" {
 			http.NotFound(w, r)
@@ -201,12 +195,9 @@ func main() {
 		http.ServeFile(w, r, "./static/rag.html")
 	})
 	http.HandleFunc("/api/breakout_score", handleBreakoutScore)
-	http.HandleFunc("/api/cron_stocks", handleCronStocks)
 	http.HandleFunc("/api/rag/sync", handleRAGSync)
 	http.HandleFunc("/api/rag/search", handleRAGSearch)
 
-	// 定时任务：交易日交易时间每 5 分钟执行一次，向飞书推送订阅股票的实时价格
-	go runCronTicker()
 	// 定时任务：每小时拉取新闻写入 RAG（Redis 未配置时自动跳过）
 	go runRAGTicker()
 
@@ -214,16 +205,6 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 	log.Println("Server started")
 	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-func runCronTicker() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		if err := cronstock.RunTick(context.Background()); err != nil {
-			log.Printf("[cron_stocks] tick error: %v", err)
-		}
-	}
 }
 
 // runRAGTicker 每小时执行一次：从 cron_stocks 取订阅列表，拉取新闻并写入 Redis（RAG）。
@@ -291,83 +272,6 @@ func handleBreakoutScore(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(s))
-}
-
-func handleCronStocks(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		c, err := cronstock.Load()
-		if err != nil {
-			replyJSON(w, map[string]string{"error": err.Error()})
-			return
-		}
-		replyJSON(w, c)
-		return
-	case http.MethodPost:
-		var body struct {
-			Symbol           string `json:"symbol"`
-			IntervalMinutes  int    `json:"interval_minutes"`
-			FeishuWebhookURL string `json:"feishu_webhook_url"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			replyJSON(w, map[string]string{"error": "invalid body"})
-			return
-		}
-		symbol := strings.TrimSpace(body.Symbol)
-		webhook := strings.TrimSpace(body.FeishuWebhookURL)
-		if symbol == "" || webhook == "" {
-			replyJSON(w, map[string]string{"error": "股票代码与飞书 Webhook 必填"})
-			return
-		}
-		if body.IntervalMinutes <= 0 {
-			body.IntervalMinutes = 5
-		}
-		if body.IntervalMinutes != 5 && body.IntervalMinutes != 10 && body.IntervalMinutes != 30 {
-			replyJSON(w, map[string]string{"error": "推送间隔仅支持 5、10、30 分钟"})
-			return
-		}
-		c, err := cronstock.Load()
-		if err != nil {
-			replyJSON(w, map[string]string{"error": err.Error()})
-			return
-		}
-		c.Subscriptions = append(c.Subscriptions, cronstock.Subscription{
-			Symbol:           symbol,
-			IntervalMinutes:  body.IntervalMinutes,
-			FeishuWebhookURL: webhook,
-		})
-		if err := cronstock.Save(c); err != nil {
-			replyJSON(w, map[string]string{"error": err.Error()})
-			return
-		}
-		replyJSON(w, c)
-		return
-	case http.MethodDelete:
-		idxStr := r.URL.Query().Get("index")
-		idx, err := strconv.Atoi(idxStr)
-		if err != nil || idx < 0 {
-			replyJSON(w, map[string]string{"error": "invalid index"})
-			return
-		}
-		c, err := cronstock.Load()
-		if err != nil {
-			replyJSON(w, map[string]string{"error": err.Error()})
-			return
-		}
-		if idx >= len(c.Subscriptions) {
-			replyJSON(w, map[string]string{"error": "index out of range"})
-			return
-		}
-		c.Subscriptions = append(c.Subscriptions[:idx], c.Subscriptions[idx+1:]...)
-		if err := cronstock.Save(c); err != nil {
-			replyJSON(w, map[string]string{"error": err.Error()})
-			return
-		}
-		replyJSON(w, c)
-		return
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
 }
 
 func handleRAGSync(w http.ResponseWriter, r *http.Request) {
