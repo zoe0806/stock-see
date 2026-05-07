@@ -26,9 +26,8 @@ type ParsedIntent struct {
 	SymbolNames    []string `json:"symbol_names,omitempty"` // 中文简称，辅助检索
 	TimeHint       string   `json:"time_hint,omitempty"`    // 如：近三年、2023年
 	CompareAxis    string   `json:"compare_axis,omitempty"` // pe/pb/price/revenue/profit/roe/general
-	SkillHints     []string `json:"skill_hints,omitempty"`  // 技能目录名：technical、news 等
-	NeedFullReport bool     `json:"need_full_report"`
-	ClarifyPrompt  string   `json:"clarify_prompt,omitempty"` // 建议追问用户的简短话术
+	SkillHints    []string `json:"skill_hints,omitempty"` // 技能目录名：technical、news 等
+	ClarifyPrompt string   `json:"clarify_prompt,omitempty"` // 建议追问用户的简短话术
 	Confidence     float64  `json:"confidence,omitempty"`
 
 	// Source 取值：llm_tool / keyword_fallback / merge_explicit

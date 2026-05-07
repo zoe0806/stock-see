@@ -28,26 +28,8 @@ const DefaultSystemInstructionTemplate = `# 系统指令（System Prompt）
 （以下为对话历史与当前用户消息，请据此回复。）
 `
 
-// DefaultFullReportOutputFormat 内置全量综合报告格式说明；config 为空时回退。
-const DefaultFullReportOutputFormat = `
-## 综合报告输出格式（必须遵守）
-
-请严格按以下结构生成报告，使用 Markdown 语法，**不要在行尾写 # 或 ##**。
-
-1. **标题**：一行，格式为「股票名称(代码) 综合分析报告」，如：中际旭创(300308) 综合分析报告
-
-`
-
-// SystemInstructionTemplate 与 FullReportOutputFormat 为历史别名，等价于默认内置模板。
-const (
-	SystemInstructionTemplate = DefaultSystemInstructionTemplate
-	FullReportOutputFormat    = DefaultFullReportOutputFormat
-)
-
-// BuildFullReportExtra 拼接全量报告模式下注入到上下文的 Extra 块（与 main 中 full 模式一致）。
-func BuildFullReportExtra(combinedParallelMarkdown, formattedScoreMarkdown, fullReportFormat string) string {
-	return "## 本次并行分析结果（已执行）\n\n" + combinedParallelMarkdown + "\n\n---\n\n## 综合评分结果\n\n" + formattedScoreMarkdown + "\n\n请根据以上数据生成综合报告、可操作建议与免责说明。**你必须严格按下文「综合报告输出格式」的结构与 Markdown 规范输出，不得在行尾使用 # 或 ##，分节清晰、关键数据加粗。**" + fullReportFormat
-}
+// SystemInstructionTemplate 为历史别名，等价于默认内置模板。
+const SystemInstructionTemplate = DefaultSystemInstructionTemplate
 
 // ContextInput 为动态注入的上下文组成部分（工作空间、记忆、技能、会话历史、行情与新闻）。
 type ContextInput struct {

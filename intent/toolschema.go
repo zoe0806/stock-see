@@ -69,11 +69,6 @@ func SubmitParsedIntentToolInfo(desc string) *schema.ToolInfo {
 				},
 				Desc: "分析维度（目录名）；单维度任务须含与 task_kind 对应项，如 task_kind=technical 则含 technical",
 			},
-			"need_full_report": {
-				Type:     schema.Boolean,
-				Desc:     "用户是否明确要求全面/综合/深度报告（非简单查价）",
-				Required: false,
-			},
 			"clarify_prompt": {
 				Type: schema.String,
 				Desc: "task_kind 为 need_clarify 时给用户的追问",

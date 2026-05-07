@@ -9,18 +9,10 @@ import (
 
 // Skill 表示一个技能的元数据及 SKILL.md 路径。
 type Skill struct {
-	Name                  string   // 技能名称（SKILL.md 所在目录名）
-	Description           string   // SKILL.md 首段摘要（展示用）
-	Path                  string   // SKILL.md 的路径
-	MatchKeywords         []string // 意图关键词（内置 + intent.json + HTML 注释）
-	AlwaysForFullReport   bool     // intent.json：全量模式下额外始终注入
-	ExcludeFromFullBundle bool     // intent.json：从全量默认捆绑中排除（如实验技能）
-}
-
-// MatchOpts 技能匹配选项。
-type MatchOpts struct {
-	// FullReport 为 true 时（如 mode=full 且带 symbol），先注入 fullReportSkillOrder 中的核心维度技能。
-	FullReport bool
+	Name            string   // 技能名称（SKILL.md 所在目录名）
+	Description     string   // SKILL.md 首段摘要（展示用）
+	Path            string   // SKILL.md 的路径
+	MatchKeywords   []string // 意图关键词（内置 + intent.json + HTML 注释）
 }
 
 // LoadSkillsFromDir 扫描目录，查找所有 skills/*/SKILL.md 或 skills/agent-roles/*/SKILL.md。
@@ -36,14 +28,12 @@ func LoadSkillsFromDir(root string) ([]Skill, error) {
 			dir := filepath.Dir(path)
 			name := filepath.Base(dir)
 			desc, _ := readFirstParagraph(path)
-			kws, alwaysFR, excl := loadSkillIntent(dir, path, name)
+			kws := loadSkillIntent(dir, path, name)
 			skills = append(skills, Skill{
-				Name:                  name,
-				Description:           desc,
-				Path:                  path,
-				MatchKeywords:         kws,
-				AlwaysForFullReport:   alwaysFR,
-				ExcludeFromFullBundle: excl,
+				Name:          name,
+				Description:   desc,
+				Path:          path,
+				MatchKeywords: kws,
 			})
 		}
 		return nil
@@ -94,13 +84,13 @@ func LoadSkillsContent(paths []string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// MatchSkills 保留兼容：等价于 MatchSkillsForRequest(skills, userMessageOrTask, MatchOpts{})。
+// MatchSkills 根据用户文本意图返回要注入的 SKILL.md 路径（去重保序）。
 func MatchSkills(skills []Skill, userMessageOrTask string) []string {
-	return MatchSkillsForRequest(skills, userMessageOrTask, MatchOpts{})
+	return MatchSkillsForRequest(skills, userMessageOrTask)
 }
 
-// MatchSkillsForRequest 根据用户文本意图 + 可选全量报告模式，返回要注入的 SKILL.md 路径（去重保序）。
-func MatchSkillsForRequest(skills []Skill, userText string, opts MatchOpts) []string {
+// MatchSkillsForRequest 根据用户文本意图返回要注入的 SKILL.md 路径（去重保序）。
+func MatchSkillsForRequest(skills []Skill, userText string) []string {
 	userText = strings.TrimSpace(userText)
 	lower := strings.ToLower(userText)
 
@@ -120,21 +110,6 @@ func MatchSkillsForRequest(skills []Skill, userText string, opts MatchOpts) []st
 		}
 		seen[p] = struct{}{}
 		out = append(out, p)
-	}
-
-	if opts.FullReport {
-		for _, name := range fullReportSkillOrder {
-			s, ok := byName[name]
-			if !ok || s.ExcludeFromFullBundle {
-				continue
-			}
-			add(s.Path)
-		}
-		for _, s := range skills {
-			if s.AlwaysForFullReport && !s.ExcludeFromFullBundle {
-				add(s.Path)
-			}
-		}
 	}
 
 	for _, s := range skills {

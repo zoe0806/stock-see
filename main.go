@@ -28,14 +28,13 @@ import (
 	"github.com/cloudwego/eino/compose"
 )
 
-// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json；
-// fullReport 为 true 时额外注入综合报告核心维度技能（与并行分析一致）。
-func loadMatchedSkillPaths(skillsRoot, matchText string, fullReport bool) []string {
+// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json。
+func loadMatchedSkillPaths(skillsRoot, matchText string) []string {
 	list, err := prompt.LoadSkillsFromDir(skillsRoot)
 	if err != nil {
 		return nil
 	}
-	return prompt.MatchSkillsForRequest(list, matchText, prompt.MatchOpts{FullReport: fullReport})
+	return prompt.MatchSkillsForRequest(list, matchText)
 }
 
 func main() {
@@ -95,7 +94,7 @@ func main() {
 		log.Fatalf("初始化模型失败: %v", err)
 	}
 
-	sysTpl, fullReportTpl, promptVer, err := tools.GetResolvedPrompt()
+	sysTpl, promptVer, err := tools.GetResolvedPrompt()
 	if err != nil {
 		log.Fatalf("解析 prompt 配置失败: %v", err)
 	}
@@ -110,10 +109,9 @@ func main() {
 			suitePath = "data/eval/suite.json"
 		}
 		sum, err := eval.Run(ctx, chatModel, eval.Options{
-			SuitePath:        suitePath,
-			SystemTemplate:   sysTpl,
-			FullReportFormat: fullReportTpl,
-			PromptVersion:    promptVer,
+			SuitePath:      suitePath,
+			SystemTemplate: sysTpl,
+			PromptVersion:  promptVer,
 		})
 		if err != nil {
 			log.Fatalf("评测失败: %v", err)
@@ -179,7 +177,7 @@ func main() {
 
 	// 2. 设置路由（具体路径优先于静态文件）
 	http.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
-		handerChat(w, r, runner, fullReportTpl, chatModel)
+		handerChat(w, r, runner, chatModel)
 	})
 	http.HandleFunc("/break", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/break" {
@@ -450,7 +448,7 @@ func replyJSON(w http.ResponseWriter, v any) {
 	enc.Encode(v)
 }
 
-func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, fullReportFormat string, parseModel intent.ParseModel) {
+func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, parseModel intent.ParseModel) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -460,7 +458,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 	var req struct {
 		Message        string `json:"message"`
 		Symbol         string `json:"symbol"`  // 可选：当前分析标的
-		Mode           string `json:"mode"`    // 可选：full = Phase 4 全量报告（并行分析+评分后由 Agent 生成总评）
 		Context        string `json:"context"` // 可选：工作空间、记忆等
 		SessionHistory string `json:"session_history"`
 		Workspace      string `json:"workspace"`
@@ -477,8 +474,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 	// newsCtx := ""
 	memoryContent := req.Memory
 	extraCtx := req.Context
-
-	needFullReport := (req.Mode == "full" || req.Mode == "full_report") && req.Symbol != ""
 
 	if req.Symbol != "" {
 		//marketCtx = tools.GetMarketDataMock(req.Symbol)
@@ -500,7 +495,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 		fmt.Fprint(w, "\n")
 	}
 
-	// 设置 SSE 头（尽早设置，以便全量报告时先流式推送 section）
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -508,25 +502,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
-	}
-
-	// Phase 4 全量报告：按维度流式推送，再汇总上下文给 Agent 生成综合报告
-	if needFullReport {
-		includeReports := strings.Contains(req.Message, "财报")
-		combined, formattedScore, err := tools.RunAnalysisParallelStream(r.Context(), req.Symbol, includeReports, func(key string, _ any, markdown string) {
-			payload, _ := json.Marshal(map[string]string{"type": key, "markdown": markdown})
-			fmt.Fprintf(w, "event: section\ndata: %s\n\n", payload)
-			flusher.Flush()
-		})
-		if err == nil && formattedScore != "" {
-			extraCtx = prompt.BuildFullReportExtra(tools.FormatParallelResultForContext(combined), formattedScore, fullReportFormat)
-			if userMessage == "" {
-				userMessage = "根据上下文中的「本次并行分析结果」与「综合评分结果」，按「综合报告输出格式」生成该股票的综合报告（含当前行情、各维度分析、风险提示、操作建议与免责声明）。"
-			}
-			scorePayload, _ := json.Marshal(map[string]string{"type": "score", "markdown": formattedScore})
-			fmt.Fprintf(w, "event: section\ndata: %s\n\n", scorePayload)
-			flusher.Flush()
-		}
 	}
 
 	matchText := strings.TrimSpace(req.Message)
@@ -547,8 +522,8 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 		ExplicitSymbol: req.Symbol,
 	})
 	fmt.Println("parsed", parsed.SkillHints)
-	// 按意图 skill_hints 在后端直接执行对应工具，结果注入 Extra（全量报告已并行拉数，避免重复）
-	if !needFullReport && parsed != nil && len(parsed.SkillHints) > 0 {
+	// 按意图 skill_hints 在后端直接执行对应工具，结果注入 Extra
+	if parsed != nil && len(parsed.SkillHints) > 0 {
 		sym := strings.TrimSpace(req.Symbol)
 		if sym == "" && len(parsed.Symbols) > 0 {
 			sym = parsed.Symbols[0]
@@ -566,7 +541,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 	// 	log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
 	// }
 	// skillsRoot := filepath.Join(".", "skills")
-	// skillPaths := loadMatchedSkillPaths(skillsRoot, matchText, needFullReport)
+	// skillPaths := loadMatchedSkillPaths(skillsRoot, matchText)
 	// skillsContent := prompt.LoadSkillsContent(skillPaths)
 
 	contextBlock := prompt.BuildContext(prompt.ContextInput{

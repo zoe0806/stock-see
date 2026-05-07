@@ -14,7 +14,6 @@ const disableSkillHintToolsEnv = "STOCK_SKILL_HINT_TOOLS_DISABLE"
 // RunSkillHintsTools 按意图中的 skill_hints 直接执行对应 tool.BaseTool（不经 Agent 调度），
 // 将各段 Markdown 按 hints 顺序拼接，供注入上下文「其他上下文」。
 // symbol 须为六位代码；market-trend 等不依赖 symbol 的仍会执行。
-// needFullReport 场景请在调用方跳过，避免与 RunAnalysisParallelStream 重复。
 func RunSkillHintsTools(ctx context.Context, symbol string, userMessage string, hints []string) string {
 	if strings.TrimSpace(os.Getenv(disableSkillHintToolsEnv)) == "1" {
 		return ""

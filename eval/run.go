@@ -23,10 +23,9 @@ type ChatGenerator interface {
 
 // Options 单次评测运行参数。
 type Options struct {
-	SuitePath        string
-	SystemTemplate   string
-	FullReportFormat string
-	PromptVersion    string
+	SuitePath      string
+	SystemTemplate string
+	PromptVersion  string
 }
 
 // Suite 评测集文件结构。
@@ -38,13 +37,11 @@ type Suite struct {
 
 // Case 单条用例。
 type Case struct {
-	ID                   string `json:"id"`
-	Kind                 string `json:"kind"`
-	Symbol               string `json:"symbol"`
-	UserMessage          string `json:"userMessage"`
-	StubParallelMarkdown string `json:"stubParallelMarkdown"`
-	StubScoreMarkdown    string `json:"stubScoreMarkdown"`
-	Rubric               Rubric `json:"rubric"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Symbol      string `json:"symbol"`
+	UserMessage string `json:"userMessage"`
+	Rubric      Rubric `json:"rubric"`
 }
 
 // Rubric 可自动化检查的启发式规则（0–100 分制扣分）。
@@ -103,7 +100,7 @@ func Run(ctx context.Context, gen ChatGenerator, opt Options) (*Summary, error) 
 		if strings.TrimSpace(c.ID) == "" {
 			return nil, fmt.Errorf("eval: case with empty id")
 		}
-		msgs, err := buildMessages(c, opt.SystemTemplate, opt.FullReportFormat)
+		msgs, err := buildMessages(c, opt.SystemTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("case %s: %w", c.ID, err)
 		}
@@ -134,7 +131,7 @@ func Run(ctx context.Context, gen ChatGenerator, opt Options) (*Summary, error) 
 	return out, nil
 }
 
-func buildMessages(c Case, sysTpl, fullFmt string) ([]*schema.Message, error) {
+func buildMessages(c Case, sysTpl string) ([]*schema.Message, error) {
 	sym := strings.TrimSpace(c.Symbol)
 	market := ""
 	if sym != "" {
@@ -149,16 +146,6 @@ func buildMessages(c Case, sysTpl, fullFmt string) ([]*schema.Message, error) {
 	switch strings.TrimSpace(c.Kind) {
 	case "", "chat":
 		// 仅行情摘要 + 用户问题
-	case "full_report_stub":
-		par := strings.TrimSpace(c.StubParallelMarkdown)
-		if par == "" {
-			par = "## 技术面（模拟）\n- 趋势：**偏多**\n- 关键位：模拟数据\n\n## 基本面（模拟）\n- 估值：**中性**"
-		}
-		scr := strings.TrimSpace(c.StubScoreMarkdown)
-		if scr == "" {
-			scr = "综合评分: **68分** (持有)\n\n| 维度 | 分数 |\n|------|------|\n| 技术 | 62 |\n| 基本面 | 65 |"
-		}
-		ctxIn.Extra = prompt.BuildFullReportExtra(par, scr, fullFmt)
 	default:
 		return nil, fmt.Errorf("unknown kind %q", c.Kind)
 	}

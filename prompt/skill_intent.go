@@ -7,20 +7,6 @@ import (
 	"strings"
 )
 
-// fullReportSkillOrder 全量综合报告（mode=full）时默认注入上下文的技能顺序，与并行分析维度一致。
-var fullReportSkillOrder = []string{
-	"realtime-market",
-	"technical",
-	"fundamental",
-	"news",
-	"sentiment",
-	"market-trend",
-	"sector",
-	"pattern",
-	"risk",
-	"scoring",
-}
-
 // builtinIntentKeywords 按技能目录名（SKILL.md 所在文件夹）预置中文/英文触发词，不依赖 SKILL.md 首段拆词。
 var builtinIntentKeywords = map[string][]string{
 	"technical":     {"技术面", "技术分析", "走势", "均线", "MACD", "KDJ", "RSI", "技术指标", "多空", "支撑", "压力", "金叉", "死叉"},
@@ -40,21 +26,17 @@ var builtinIntentKeywords = map[string][]string{
 
 // skillIntentFile 与 SKILL.md 同目录的 intent.json（可选）。
 type skillIntentFile struct {
-	Keywords             []string `json:"keywords"`
-	AlwaysForFullReport  bool     `json:"alwaysForFullReport"`
-	ExcludeFromFullBundle bool    `json:"excludeFromFullBundle"`
+	Keywords []string `json:"keywords"`
 }
 
-func loadSkillIntent(skillDir, skillMDPath, skillName string) (keywords []string, alwaysFR, excludeBundle bool) {
-	keywords = append([]string(nil), builtinIntentKeywords[skillName]...)
+func loadSkillIntent(skillDir, skillMDPath, skillName string) []string {
+	keywords := append([]string(nil), builtinIntentKeywords[skillName]...)
 
 	intentPath := filepath.Join(skillDir, "intent.json")
 	if raw, err := os.ReadFile(intentPath); err == nil {
 		var meta skillIntentFile
 		if json.Unmarshal(raw, &meta) == nil {
 			keywords = append(keywords, meta.Keywords...)
-			alwaysFR = meta.AlwaysForFullReport
-			excludeBundle = meta.ExcludeFromFullBundle
 		}
 	}
 
@@ -62,8 +44,7 @@ func loadSkillIntent(skillDir, skillMDPath, skillName string) (keywords []string
 		keywords = append(keywords, extra...)
 	}
 
-	keywords = dedupeStringsTrim(keywords)
-	return keywords, alwaysFR, excludeBundle
+	return dedupeStringsTrim(keywords)
 }
 
 func parseSkillIntentComment(skillMDPath string) []string {

@@ -64,31 +64,29 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 	}
 
 	var raw struct {
-		TaskKind       string   `json:"task_kind"`
-		Symbols        []string `json:"symbols"`
-		SymbolNames    []string `json:"symbol_names"`
-		TimeHint       string   `json:"time_hint"`
-		CompareAxis    string   `json:"compare_axis"`
-		SkillHints     []string `json:"skill_hints"`
-		NeedFullReport bool     `json:"need_full_report"`
-		ClarifyPrompt  string   `json:"clarify_prompt"`
-		Confidence     float64  `json:"confidence"`
+		TaskKind      string   `json:"task_kind"`
+		Symbols       []string `json:"symbols"`
+		SymbolNames   []string `json:"symbol_names"`
+		TimeHint      string   `json:"time_hint"`
+		CompareAxis   string   `json:"compare_axis"`
+		SkillHints    []string `json:"skill_hints"`
+		ClarifyPrompt string   `json:"clarify_prompt"`
+		Confidence    float64  `json:"confidence"`
 	}
 	if err := sonic.UnmarshalString(args, &raw); err != nil {
 		return nil
 	}
 	log.Println("Parse args", args, in.UserMessage, in.ExplicitSymbol)
 	p := &ParsedIntent{
-		TaskKind:       TaskKind(strings.TrimSpace(raw.TaskKind)),
-		Symbols:        raw.Symbols,
-		SymbolNames:    raw.SymbolNames,
-		TimeHint:       strings.TrimSpace(raw.TimeHint),
-		CompareAxis:    strings.TrimSpace(raw.CompareAxis),
-		SkillHints:     raw.SkillHints,
-		NeedFullReport: raw.NeedFullReport,
-		ClarifyPrompt:  strings.TrimSpace(raw.ClarifyPrompt),
-		Confidence:     raw.Confidence,
-		Source:         "llm_tool",
+		TaskKind:      TaskKind(strings.TrimSpace(raw.TaskKind)),
+		Symbols:       raw.Symbols,
+		SymbolNames:   raw.SymbolNames,
+		TimeHint:      strings.TrimSpace(raw.TimeHint),
+		CompareAxis:   strings.TrimSpace(raw.CompareAxis),
+		SkillHints:    raw.SkillHints,
+		ClarifyPrompt: strings.TrimSpace(raw.ClarifyPrompt),
+		Confidence:    raw.Confidence,
+		Source:        "llm_tool",
 	}
 	//校验并规范化意图
 	ValidateAndPatch(p, in.UserMessage)

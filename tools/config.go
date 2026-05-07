@@ -24,7 +24,7 @@ type StockPython struct {
 	BaseURL string `json:"baseURL"`
 }
 
-// PromptConfig 管理 SystemInstruction / FullReportOutputFormat 的多版本与当前启用版本。
+// PromptConfig 管理 SystemInstruction 的多版本与当前启用版本。
 type PromptConfig struct {
 	ActiveVersion string                         `json:"activeVersion"`
 	Versions      map[string]PromptVersionFields `json:"versions"`
@@ -32,14 +32,11 @@ type PromptConfig struct {
 
 // PromptVersionFields 某一版本的模板；字段均可选，未提供则回退到代码内置默认模板。
 // 解析顺序（系统指令）：systemInstructionTemplateFile → templateDir/system.md → systemInstructionTemplate → 内置。
-// 解析顺序（全量报告格式）：fullReportOutputFormatFile → templateDir/full_report.md → fullReportOutputFormat → 内置。
 // templateDir、*TemplateFile 路径均相对「当前 stock 配置文件」所在目录（如 config/）。
 type PromptVersionFields struct {
 	TemplateDir                   string `json:"templateDir"`
 	SystemInstructionTemplate     string `json:"systemInstructionTemplate"`
-	FullReportOutputFormat        string `json:"fullReportOutputFormat"`
 	SystemInstructionTemplateFile string `json:"systemInstructionTemplateFile"`
-	FullReportOutputFormatFile    string `json:"fullReportOutputFormatFile"`
 	Note                          string `json:"note,omitempty"`
 }
 

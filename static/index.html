@@ -125,17 +125,16 @@
         <h1>股票分析助手</h1>
         <div class="options">
             <label>股票代码 <input type="text" id="symbol-input" placeholder="如 600519" maxlength="12" /></label>
-            <label>模式 <select id="mode-select"><option value="">普通对话</option><option value="full">全量报告</option></select></label>
         </div>
     </header>
     <div id="chat-container"></div>
     <div id="input-area">
         <div style="flex:1; max-width: 920px; margin: 0 auto;">
             <div class="input-row">
-                <textarea id="message-input" rows="1" placeholder="输入消息，或选全量报告+股票代码一键出报告..."></textarea>
+                <textarea id="message-input" rows="1" placeholder="输入消息..."></textarea>
                 <button id="send-button">发送</button>
             </div>
-            <p class="hint">填写股票代码可注入行情/新闻；选「全量报告」将并行拉取六维度分析并生成综合报告。</p>
+            <p class="hint">填写股票代码可注入记忆与上下文；多维度分析可通过对话让助手调用工具完成。</p>
         </div>
     </div>
 
@@ -147,7 +146,6 @@
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
         const symbolInput = document.getElementById('symbol-input');
-        const modeSelect = document.getElementById('mode-select');
 
         
         // 与静态演示页一致：仅配置 highlight，其余用 marked 默认
@@ -228,15 +226,9 @@
         function sendMessage() {
             const message = messageInput.value.trim();
             const symbol = symbolInput.value.trim();
-            const mode = modeSelect.value;
-            if (!message && !(mode === 'full' && symbol)) { messageInput.focus(); return; }
-            if (mode === 'full' && !symbol) {
-                appendMessage('assistant', '全量报告模式请先填写股票代码。', null);
-                chatContainer.lastElementChild.classList.add('error');
-                return;
-            }
-            const userDisplay = message || ('全量报告：' + symbol);
-            const meta = [symbol && ('标的 ' + symbol), mode === 'full' && '全量报告'].filter(Boolean).join(' · ') || null;
+            if (!message) { messageInput.focus(); return; }
+            const userDisplay = message;
+            const meta = symbol && ('标的 ' + symbol) || null;
             appendMessage('user', userDisplay, meta);
             messageInput.value = '';
 
@@ -256,7 +248,7 @@
             fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: message || '', symbol: symbol || undefined, mode: mode || undefined })
+                body: JSON.stringify({ message: message, symbol: symbol || undefined })
             }).then(async (response) => {
                 if (!response.ok) {
                     contentEl.textContent = '请求失败: ' + response.status;
