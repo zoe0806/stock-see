@@ -48,6 +48,7 @@ func RunSkillHintsTools(ctx context.Context, symbol string, userMessage string, 
 				ch <- out{i: idx, err: err}
 				return
 			}
+
 			sec := "### " + title + "\n\n" + strings.TrimSpace(body)
 			ch <- out{i: idx, md: sec, err: err}
 		}(i, key)
@@ -69,7 +70,7 @@ func RunSkillHintsTools(ctx context.Context, symbol string, userMessage string, 
 			continue
 		}
 		if b.Len() > 0 {
-			b.WriteString("\n\n---\n\n")
+			b.WriteString("\n\n\n\n")
 		}
 		b.WriteString(s)
 	}
@@ -102,6 +103,7 @@ func normalizeSkillHintKey(h string) string {
 func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, key string) (title string, body string, err error) {
 	switch key {
 	case "realtime-market":
+		log.Println("[skill_hints] 执行 realtime-market")
 		t := &GetMarketDataTool{}
 		if symbol == "" {
 			return "行情", "", nil
@@ -111,6 +113,7 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "行情（get_market_data）", body, err
 
 	case "technical":
+		log.Println("[skill_hints] 执行 technical")
 		t := &RunTechnicalTool{}
 		if symbol == "" {
 			return "技术面", "", nil
@@ -120,6 +123,7 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "技术面（run_technical）", body, err
 
 	case "fundamental":
+		log.Println("[skill_hints] 执行 fundamental")
 		t := &RunFundamentalTool{}
 		if symbol == "" {
 			return "基本面", "", nil
@@ -133,6 +137,7 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "基本面（run_fundamental）", body, err
 
 	case "news":
+		log.Println("[skill_hints] 执行 news")
 		t := &RunNewsTool{}
 		if symbol == "" {
 			return "消息面", "", nil
@@ -142,6 +147,7 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "消息面（run_news）", body, err
 
 	case "sentiment":
+		log.Println("[skill_hints] 执行 sentiment")
 		t := &RunSentimentTool{}
 		if symbol == "" {
 			return "情绪/资金面", "", nil
@@ -151,11 +157,13 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "情绪/资金面（run_sentiment）", body, err
 
 	case "market-trend":
+		log.Println("[skill_hints] 执行 market-trend")
 		t := &RunMarketTrendTool{}
 		body, err = t.InvokableRun(ctx, `{}`)
 		return "大盘趋势（run_market_trend）", body, err
 
 	case "sector":
+		log.Println("[skill_hints] 执行 sector")
 		t := &RunSectorTool{}
 		if symbol == "" {
 			return "板块", "", nil
@@ -165,6 +173,7 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "板块（run_sector）", body, err
 
 	case "pattern":
+		log.Println("[skill_hints] 执行 pattern")
 		t := &RunPatternTool{}
 		if symbol == "" {
 			return "形态", "", nil
@@ -174,6 +183,7 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		return "形态（run_pattern）", body, err
 
 	case "scoring":
+		log.Println("[skill_hints] 执行 scoring")
 		t := &RunScoringTool{}
 		if symbol == "" {
 			return "综合评分", "", nil
@@ -182,8 +192,6 @@ func runSkillHintOnce(ctx context.Context, symbol string, includeReports bool, k
 		body, err = t.InvokableRun(ctx, string(args))
 		return "综合评分（run_scoring）", body, err
 
-	case "risk":
-		return key, "", nil
 	default:
 		log.Printf("[skill_hints] unknown hint: %q", key)
 		return key, "", nil

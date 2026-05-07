@@ -33,6 +33,37 @@ func GetResolvedPrompt() (system string, fullReport string, version string, err 
 	return sys, full, vID, nil
 }
 
+// ResolveIntentPrompts 从当前 prompt 版本的 templateDir 读取 intent_parse_system.md、intent_tool_desc.md；
+// 文件不存在或为空时保留 defaultSystem / defaultToolDesc。与 GetResolvedPrompt 使用同一 activeVersion。
+func ResolveIntentPrompts(defaultSystem, defaultToolDesc string) (system string, toolDesc string, err error) {
+	system = defaultSystem
+	toolDesc = defaultToolDesc
+	_ = loadStockConfig()
+	cfg := stockConfig
+	if cfg == nil || cfg.Prompt == nil {
+		return system, toolDesc, nil
+	}
+	vID := strings.TrimSpace(cfg.Prompt.ActiveVersion)
+	if vID == "" {
+		return system, toolDesc, nil
+	}
+	def, ok := cfg.Prompt.Versions[vID]
+	if !ok {
+		return "", "", fmt.Errorf("prompt: activeVersion %q 在 prompt.versions 中不存在", vID)
+	}
+	if body, okFile, e := readFromTemplateDir(def.TemplateDir, "intent_parse_system.md"); e != nil {
+		return "", "", fmt.Errorf("prompt version %q intent_parse_system.md: %w", vID, e)
+	} else if okFile && strings.TrimSpace(body) != "" {
+		system = strings.TrimSpace(body)
+	}
+	if body, okFile, e := readFromTemplateDir(def.TemplateDir, "intent_tool_desc.md"); e != nil {
+		return "", "", fmt.Errorf("prompt version %q intent_tool_desc.md: %w", vID, e)
+	} else if okFile && strings.TrimSpace(body) != "" {
+		toolDesc = strings.TrimSpace(body)
+	}
+	return system, toolDesc, nil
+}
+
 func resolveSystemInstruction(def PromptVersionFields, fallback string) (string, error) {
 	if s := strings.TrimSpace(def.SystemInstructionTemplateFile); s != "" {
 		return readPromptRel(s)

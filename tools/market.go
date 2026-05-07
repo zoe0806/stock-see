@@ -20,7 +20,7 @@ type GetMarketDataTool struct{}
 func (t *GetMarketDataTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "get_market_data",
-		Desc: "获取指定股票代码的最新行情：最新价、涨跌幅、成交量、近期K线摘要。分析某只股票前应先调用此工具。同时获取公司简介、行业地位、产能布局、技术优势与护城河等信息",
+		Desc: "获取指定股票代码的最新行情：最新价、涨跌幅、成交量、近期K线摘要。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"symbol": {
 				Desc:     "股票代码，如 600519（茅台）、000858（五粮液）",

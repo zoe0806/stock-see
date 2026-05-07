@@ -555,9 +555,9 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, full
 		}
 		if block := tools.RunSkillHintsTools(r.Context(), sym, um, parsed.SkillHints); block != "" {
 			if extraCtx != "" {
-				extraCtx += "\n\n---\n\n"
+				extraCtx += "\n\n"
 			}
-			extraCtx += "## 意图技能预取（skill_hints → 工具执行结果）\n\n以下由服务端按意图已调用 Python/工具生成，请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
+			extraCtx += "##请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
 		}
 	}
 	//根据意图加载对应skills文档，构建上下文

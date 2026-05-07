@@ -11,12 +11,8 @@ var skillCue = map[string]string{
 	"market-trend":    "大盘",
 	"sector":          "板块",
 	"pattern":         "形态",
-	"risk":            "风险",
 	"scoring":         "综合评分",
 	"realtime-market": "行情",
-	"backtest":        "回测",
-	"kronos":          "预测",
-	"scrapling":       "网页",
 }
 
 // compareCue 对比维度补充词。
@@ -79,7 +75,6 @@ func EnrichMatchText(rawUser string, p *ParsedIntent) string {
 		add("新闻")
 		add("风险")
 		add("综合评分")
-		add("行情")
 	case TaskFundamental:
 		add("基本面")
 	case TaskTechnical:

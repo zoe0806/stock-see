@@ -3,9 +3,12 @@
 /docs/
 /memory/
 /skills/
-/eval/
+/cronstock/
 
 # 配置
 /config/
 
 
+/static/break.html
+/static/cron-stock.html
+/static/rag.html

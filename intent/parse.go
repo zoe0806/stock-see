@@ -11,6 +11,8 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"stock-see/tools"
 )
 
 const disableIntentEnv = "STOCK_INTENT_DISABLE"
@@ -30,17 +32,16 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 		return nil
 	}
 
-	//将SubmitParsedIntentToolInfo注入到模型中
-	tcm, err := cm.WithTools([]*schema.ToolInfo{SubmitParsedIntentToolInfo()})
+	sys, toolDesc, err := tools.ResolveIntentPrompts(DefaultIntentParseSystem, DefaultSubmitParsedIntentToolDesc)
+	if err != nil {
+		log.Printf("[intent] ResolveIntentPrompts: %v，使用内置默认", err)
+		sys, toolDesc = DefaultIntentParseSystem, DefaultSubmitParsedIntentToolDesc
+	}
+
+	tcm, err := cm.WithTools([]*schema.ToolInfo{SubmitParsedIntentToolInfo(toolDesc)})
 	if err != nil {
 		return nil
 	}
-
-	sys := `你是证券助手意图解析模块。只根据用户输入（及可选会话摘要、客户端已选代码）调用 submit_parsed_intent，不要输出自然语言。
-沪深股票为六位数字代码。
-task_kind 表示「任务类型」：quick_look / compare / trend / news_focus / fundamental / technical / sentiment / sector / deep_analysis / general / need_clarify / off_topic。
-skill_hints 表示「要拉取/侧重的分析维度」（与 skills 目录名一致），用于后端工具预取；**单维度任务必须在 skill_hints 里包含与 task_kind 对应的一项**，例如技术面分析时 task_kind=technical 且 skill_hints 含 "technical"；基本面同理填 "fundamental"；新闻侧重填 "news"；轻量查价填 "realtime-market"。deep_analysis 时 skill_hints 可列多个维度。
-用户只说「帮我看看」「分析一下」且未给代码与标的时，可用 symbol_names 或 need_clarify。`
 
 	msgs := []*schema.Message{
 		schema.SystemMessage(sys),
