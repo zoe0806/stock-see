@@ -463,13 +463,14 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	log.Println("nlRW", nlRW)
 	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
 
+	//pipelineTiming 管道时间统计
 	pt := observ.PipelineTiming{
-		IntentSlotMs:  aug.SlotMatchMs,
-		IntentRulesMs: aug.ComboRulesMs,
-		RetrieveMs:    aug.RetrieveMs,
-		RerankMs:      aug.RerankMs,
+		IntentSlotMs:  aug.SlotMatchMs,  //词典倒排时间
+		IntentRulesMs: aug.ComboRulesMs, //规则引擎时间
+		RetrieveMs:    aug.RetrieveMs,   //向量检索时间
+		RerankMs:      aug.RerankMs,     //重排时间
 	}
-	var tokenAcc *schema.TokenUsage
+	var tokenAcc *schema.TokenUsage //token用量统计
 
 	var parsed *intent.ParsedIntent
 	if skipFC {
@@ -547,6 +548,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	})
 	pt.ContextMs = time.Since(tCtx).Milliseconds()
 
+	//如果规则库太小，使用原话更好
 	newMsg := intent.UserMessageWithNLRewrite(um, nlRW, parsed)
 	fmt.Println("newMsg", newMsg)
 	messages := []*schema.Message{schema.UserMessage(newMsg)}
