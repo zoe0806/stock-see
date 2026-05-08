@@ -1,5 +1,5 @@
-// Package observ 提供对话链路的耗时与 token 汇总（日志 + 可选 SSE）.
-package observ
+// Package tools 提供对话链路的耗时与 token 汇总（日志 + 可选 SSE）.
+package tools
 
 import (
 	"encoding/json"
@@ -38,9 +38,9 @@ type TokenTotals struct {
 
 // ChatMetrics 写入 SSE `metrics` 事件或日志的结构体。
 type ChatMetrics struct {
-	TimingMs PipelineTiming `json:"timing_ms"`
-	Tokens   *TokenTotals   `json:"tokens,omitempty"`
-	IntentFCSkipped bool    `json:"intent_fc_skipped,omitempty"`
+	TimingMs        PipelineTiming `json:"timing_ms"`
+	Tokens          *TokenTotals   `json:"tokens,omitempty"`
+	IntentFCSkipped bool           `json:"intent_fc_skipped,omitempty"`
 }
 
 // MergeTokenUsage 合并多次模型调用的用量（意图 FC、主对话多轮等）；nil 视为 0。

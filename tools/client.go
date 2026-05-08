@@ -46,7 +46,7 @@ func GetJSON(ctx context.Context, baseURL, path string) (string, error) {
 		return "", err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return marshalError(fmt.Sprintf("Python API %s: %s", resp.Status, string(body)))
+		return "", fmt.Errorf("Python API %s: %s", resp.Status, string(body))
 	}
 	return string(body), nil
 }
@@ -77,7 +77,7 @@ func PostJSON(ctx context.Context, baseURL, path string, body any) (string, erro
 		return "", err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return marshalError(fmt.Sprintf("Python API %s: %s", resp.Status, string(respBody)))
+		return "", fmt.Errorf("Python API %s: %s", resp.Status, string(respBody))
 	}
 	return string(respBody), nil
 }

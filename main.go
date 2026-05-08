@@ -519,11 +519,12 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 	log.Println("parsed", parsed.SkillHints, parsed.Symbols, prefetchSyms)
 	tPrefetch := time.Now()
-	if block := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints); block != "" {
+	pref := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints)
+	if strings.TrimSpace(pref.ContextMarkdown) != "" {
 		if extraCtx != "" {
 			extraCtx += "\n\n"
 		}
-		extraCtx += "##请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
+		extraCtx += "## 请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + pref.ContextMarkdown
 	}
 	pt.PrefetchMs = time.Since(tPrefetch).Milliseconds()
 	//根据意图加载对应skills文档，构建上下文
@@ -547,9 +548,11 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	})
 	pt.ContextMs = time.Since(tCtx).Milliseconds()
 
-	//如果规则库太小，使用原话更好
+	// 基本面完整预取只附在用户消息末段一次，避免与 System Context（Extra）重复两遍长文
 	newMsg := intent.UserMessageWithNLRewrite(um, nlRW, parsed)
-	fmt.Println("newMsg", newMsg)
+	if strings.TrimSpace(pref.FundamentalForUser) != "" {
+		newMsg += "\n\n---\n## 基本面预取\n\n" + strings.TrimSpace(pref.FundamentalForUser)
+	}
 	messages := []*schema.Message{schema.UserMessage(newMsg)}
 	tGen := time.Now()
 	iterator := runner.Run(r.Context(), messages, adk.WithSessionValues(map[string]any{

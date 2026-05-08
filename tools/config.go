@@ -41,7 +41,7 @@ type IntentConfig struct {
 	InjectQueryAugToExtra *bool `json:"injectQueryAugToExtra"`
 	// InjectCompactIntentToExtra 为 true（默认）时在 Extra 追加一行意图摘要；与 injectQueryAugToExtra 可同时关以极简上下文。
 	InjectCompactIntentToExtra *bool `json:"injectCompactIntentToExtra"`
-	// InjectSkillPrefetchToExtra 为 true 时将 RunSkillHintsTools（支持多标的分段）的 Markdown 拼入 Extra（token 大）；默认 false，需盘面/新闻事实时再开。
+	// InjectSkillPrefetchToExtra 为 true 时将 RunSkillHintsTools 的 ContextMarkdown 拼入 Extra（token 大）；默认 false。基本面全文走 User 消息末段，不重复塞 Extra。
 	InjectSkillPrefetchToExtra *bool `json:"injectSkillPrefetchToExtra"`
 	// UseStructuredRewriteInUserMessage 为 true（默认）时，将知识库自然语言改写句写入主模型 User 消息（见 intent.NLQueryRewrite）。
 	UseStructuredRewriteInUserMessage *bool `json:"useStructuredRewriteInUserMessage"`

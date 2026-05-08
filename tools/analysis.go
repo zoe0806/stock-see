@@ -48,12 +48,14 @@ func (t *RunTechnicalTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	baseURL := PythonBaseURL()
 	if baseURL != "" {
 		s, err := PostJSON(ctx, baseURL, "/api/analysis/technical", map[string]string{"symbol": in.Symbol})
-		if err == nil {
+		if err == nil && !IsJSONErrorPayload(s) {
 			return FormatTechnicalResponse(s), nil
 		}
+		if err != nil {
+			fmt.Printf("[technical] PostJSON failed: %v\n", err)
+		}
 	}
-	fmt.Println("[technical]  成功", in.Symbol)
-	return marshalError("Python 未配置或 technical 接口调用失败，请设置 STOCK_PYTHON_URL 并启动 Python 服务")
+	return BackendDataUnavailable("技术面")
 }
 
 // FormatTechnicalResponse 将s返回的 JSON 转为可读摘要。
@@ -118,20 +120,24 @@ func (t *RunFundamentalTool) InvokableRun(ctx context.Context, argumentsInJSON s
 			body["include_reports"] = true
 		}
 		s, err := PostJSON(ctx, baseURL, "/api/analysis/fundamental", body)
-		if err == nil {
-			// 若 API 返回了 report 字段，优先将其作为可读报告返回，便于前端渲染
-			var out struct {
-				Report string `json:"report"`
-			}
-			if _ = sonic.UnmarshalString(s, &out); out.Report != "" {
-				return out.Report, nil
-			}
-			return s, nil
+		if err != nil {
+			fmt.Printf("[fundamental] PostJSON failed: %v\n", err)
+			return BackendDataUnavailable("基本面")
 		}
-		return marshalError("fundamental 接口调用失败: " + err.Error())
+		if IsJSONErrorPayload(s) {
+			fmt.Printf("[fundamental] API error body suppressed\n")
+			return BackendDataUnavailable("基本面")
+		}
+		var out struct {
+			Report string `json:"report"`
+		}
+		if _ = sonic.UnmarshalString(s, &out); out.Report != "" {
+			fmt.Println("fundamental report", out.Report)
+			return out.Report, nil
+		}
+		return s, nil
 	}
-	fmt.Println("[fundamental] 成功", in.Symbol)
-	return marshalError("Python 未配置或 fundamental 接口调用失败")
+	return BackendDataUnavailable("基本面")
 }
 
 // RunNewsTool 消息面分析（摘要与情绪）。
@@ -164,11 +170,14 @@ func (t *RunNewsTool) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	baseURL := PythonBaseURL()
 	if baseURL != "" {
 		s, err := PostJSON(ctx, baseURL, "/api/analysis/news", map[string]string{"symbol": in.Symbol})
-		if err == nil {
+		if err == nil && !IsJSONErrorPayload(s) {
 			return s, nil
 		}
+		if err != nil {
+			fmt.Printf("[news] PostJSON failed: %v\n", err)
+		}
 	}
-	return marshalError("Python 未配置或 news 分析接口调用失败")
+	return BackendDataUnavailable("消息面")
 }
 
 // RunSentimentTool 情绪/资金面分析（北向、龙虎榜、主力、热度）。
@@ -200,11 +209,15 @@ func (t *RunSentimentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 	baseURL := PythonBaseURL()
 	if baseURL == "" {
-		return marshalError("Python 未配置或 sentiment 接口调用失败")
+		return BackendDataUnavailable("资金面")
 	}
 	s, err := PostJSON(ctx, baseURL, "/api/analysis/sentiment", map[string]string{"symbol": in.Symbol})
 	if err != nil {
-		return marshalError("sentiment 接口调用失败: " + err.Error())
+		fmt.Printf("[sentiment] PostJSON failed: %v\n", err)
+		return BackendDataUnavailable("资金面")
+	}
+	if IsJSONErrorPayload(s) {
+		return BackendDataUnavailable("资金面")
 	}
 	// 若 API 返回了 report 字段，优先将其作为可读报告返回，便于前端渲染
 	var out struct {

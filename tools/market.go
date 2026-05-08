@@ -49,7 +49,11 @@ func (t *GetMarketDataTool) InvokableRun(ctx context.Context, argumentsInJSON st
 	s, err := GetJSON(ctx, baseURL, "/api/market/"+in.Symbol)
 	if err != nil {
 		log.Printf("[get_market_data] symbol=%s 调用失败: %v", in.Symbol, err)
-		return marshalError("获取行情失败: " + err.Error())
+		return BackendDataUnavailable("行情")
+	}
+	if IsJSONErrorPayload(s) {
+		log.Printf("[get_market_data] symbol=%s API 返回错误载荷，已屏蔽", in.Symbol)
+		return BackendDataUnavailable("行情")
 	}
 	log.Printf("[get_market_data] symbol=%s 成功", in.Symbol)
 	return FormatMarketResponse(s), nil

@@ -17,7 +17,7 @@ func UserMessageWithNLRewrite(original, nlRewritten string, p *ParsedIntent) str
 	msg := MergeRewrittenAndOriginal(original, nlRewritten)
 	if p != nil && p.TaskKind != TaskDeepAnalysis {
 		if strings.TrimSpace(nlRewritten) != "" && strings.TrimSpace(nlRewritten) != strings.TrimSpace(original) {
-			msg += "\n请围绕规范表述直接作答，勿默认展开多维综合研判长文。"
+			msg += "\n请围绕规范表述直接作答，勿展开多维综合研判长文。"
 		}
 	}
 	return msg

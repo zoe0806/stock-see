@@ -11,21 +11,29 @@ import (
 
 const disableSkillHintToolsEnv = "STOCK_SKILL_HINT_TOOLS_DISABLE"
 
-// RunSkillHintsTools 按意图中的 skill_hints 直接执行对应 tool.BaseTool（不经 Agent 调度），
-// 将各段 Markdown 按 hints 顺序拼接，供注入上下文「其他上下文」。
-// symbols 为六位代码列表：单标的时行为与原先一致；多标的时为每只标的分别执行依赖 symbol 的 hint，
-// 不依赖标的的 hint（如 market-trend）全局只执行一次并置于段首。
-func RunSkillHintsTools(ctx context.Context, symbols []string, userMessage string, hints []string) string {
+// SkillPrefetchResult 技能预取拆分结果：基本面全文只应出现一次，避免同时塞进 System Context（Extra）
+// 与用户可见对话重复两遍。
+type SkillPrefetchResult struct {
+	// ContextMarkdown 注入 BuildContext「其他上下文」：技术面/行情等全文；基本面仅占位说明，不含 report 正文。
+	ContextMarkdown string
+	// FundamentalForUser 拼入主模型 User 消息末尾一次（基本面完整预取）；为空则表示本轮未拉基本面。
+	FundamentalForUser string
+}
+
+// RunSkillHintsTools 按意图中的 skill_hints 直接执行对应 tool.BaseTool（不经 Agent 调度）。
+// 基本面完整报告放在 FundamentalForUser，请勿再将全文写入 ContextMarkdown，以免与对话重复展示。
+func RunSkillHintsTools(ctx context.Context, symbols []string, userMessage string, hints []string) SkillPrefetchResult {
+	out := SkillPrefetchResult{}
 	if strings.TrimSpace(os.Getenv(disableSkillHintToolsEnv)) == "1" {
-		return ""
+		return out
 	}
 	if len(hints) == 0 {
-		return ""
+		return out
 	}
 	includeReports := strings.Contains(userMessage, "财报")
 	ordered := dedupeHintsPreserveOrder(hints)
 	if len(ordered) == 0 {
-		return ""
+		return out
 	}
 
 	syms := normalizePrefetchSymbols(symbols)
@@ -36,30 +44,50 @@ func RunSkillHintsTools(ctx context.Context, symbols []string, userMessage strin
 		if len(syms) == 1 {
 			sym = syms[0]
 		}
-		return runSkillHintsOrdered(ctx, sym, includeReports, ordered)
+		ctxMD, fund := runSkillHintsOrderedSplit(ctx, sym, includeReports, ordered)
+		out.ContextMarkdown = strings.TrimSpace(ctxMD)
+		out.FundamentalForUser = strings.TrimSpace(fund)
+		return out
 	}
 
-	// 多标的：先全局 hint，再按标的分段（避免大盘类重复跑多次）
-	var b strings.Builder
+	// 多标的：先全局 hint，再按标的分段
+	var ctxB, fundB strings.Builder
 	if len(global) > 0 {
-		if g := runSkillHintsOrdered(ctx, "", includeReports, global); strings.TrimSpace(g) != "" {
-			b.WriteString(strings.TrimSpace(g))
+		ctxG, fundG := runSkillHintsOrderedSplit(ctx, "", includeReports, global)
+		ctxG = strings.TrimSpace(ctxG)
+		if ctxG != "" {
+			ctxB.WriteString(ctxG)
+		}
+		if strings.TrimSpace(fundG) != "" {
+			fundB.WriteString(strings.TrimSpace(fundG))
 		}
 	}
 	for _, sym := range syms {
-		body := runSkillHintsOrdered(ctx, sym, includeReports, perSym)
-		if strings.TrimSpace(body) == "" {
-			continue
+		ctxMD, fund := runSkillHintsOrderedSplit(ctx, sym, includeReports, perSym)
+		ctxMD = strings.TrimSpace(ctxMD)
+		fund = strings.TrimSpace(fund)
+		if ctxMD != "" {
+			if ctxB.Len() > 0 {
+				ctxB.WriteString("\n\n\n\n")
+			}
+			ctxB.WriteString("## 标的 ")
+			ctxB.WriteString(sym)
+			ctxB.WriteString("\n\n")
+			ctxB.WriteString(ctxMD)
 		}
-		if b.Len() > 0 {
-			b.WriteString("\n\n\n\n")
+		if fund != "" {
+			if fundB.Len() > 0 {
+				fundB.WriteString("\n\n\n\n")
+			}
+			fundB.WriteString("## 标的 ")
+			fundB.WriteString(sym)
+			fundB.WriteString("\n\n")
+			fundB.WriteString(fund)
 		}
-		b.WriteString("## 标的 ")
-		b.WriteString(sym)
-		b.WriteString("\n\n")
-		b.WriteString(strings.TrimSpace(body))
 	}
-	return strings.TrimSpace(b.String())
+	out.ContextMarkdown = strings.TrimSpace(ctxB.String())
+	out.FundamentalForUser = strings.TrimSpace(fundB.String())
+	return out
 }
 
 func normalizePrefetchSymbols(symbols []string) []string {
@@ -100,15 +128,16 @@ func partitionSkillHints(ordered []string) (perSymbol []string, global []string)
 	return
 }
 
-// runSkillHintsOrdered 按 ordered 顺序并行执行各 hint，输出顺序与 ordered 一致。
-func runSkillHintsOrdered(ctx context.Context, symbol string, includeReports bool, ordered []string) string {
+// runSkillHintsOrderedSplit 按 ordered 并行执行；基本面全文进入 fundamentalBlob，仅占位说明进入 ctxMarkdown。
+func runSkillHintsOrderedSplit(ctx context.Context, symbol string, includeReports bool, ordered []string) (ctxMarkdown string, fundamentalBlob string) {
 	if len(ordered) == 0 {
-		return ""
+		return "", ""
 	}
 	type out struct {
-		i   int
-		md  string
-		err error
+		i          int
+		ctxSec     string
+		fundAppend string
+		err        error
 	}
 	ch := make(chan out, len(ordered))
 	var wg sync.WaitGroup
@@ -120,13 +149,23 @@ func runSkillHintsOrdered(ctx context.Context, symbol string, includeReports boo
 			if err != nil {
 				log.Printf("[skill_hints] %s: %v", k, err)
 			}
+			nk := normalizeSkillHintKey(k)
+			if nk == "fundamental" {
+				body = strings.TrimSpace(SanitizeToolTextForUser(body))
+				if body == "" {
+					ch <- out{i: idx, err: err}
+					return
+				}
+				ctxSec := "### " + title + "\n\n> 基本面完整报告已附在用户消息末尾「基本面预取」；回复时请概括要点，勿整段重复。"
+				ch <- out{i: idx, ctxSec: ctxSec, fundAppend: body}
+				return
+			}
 			if strings.TrimSpace(body) == "" {
 				ch <- out{i: idx, err: err}
 				return
 			}
-
-			sec := "### " + title + "\n\n" + strings.TrimSpace(body)
-			ch <- out{i: idx, md: sec, err: err}
+			sec := "### " + title + "\n\n" + strings.TrimSpace(SanitizeToolTextForUser(body))
+			ch <- out{i: idx, ctxSec: sec, err: err}
 		}(i, key)
 	}
 	go func() {
@@ -134,23 +173,37 @@ func runSkillHintsOrdered(ctx context.Context, symbol string, includeReports boo
 		close(ch)
 	}()
 
-	sections := make([]string, len(ordered))
+	ctxSections := make([]string, len(ordered))
+	fundSlots := make([]string, len(ordered))
 	for r := range ch {
-		if r.md != "" {
-			sections[r.i] = r.md
+		if r.ctxSec != "" {
+			ctxSections[r.i] = r.ctxSec
+		}
+		if r.fundAppend != "" {
+			fundSlots[r.i] = r.fundAppend
 		}
 	}
-	var b strings.Builder
-	for _, s := range sections {
+	var ctxB strings.Builder
+	for _, s := range ctxSections {
 		if s == "" {
 			continue
 		}
-		if b.Len() > 0 {
-			b.WriteString("\n\n\n\n")
+		if ctxB.Len() > 0 {
+			ctxB.WriteString("\n\n\n\n")
 		}
-		b.WriteString(s)
+		ctxB.WriteString(s)
 	}
-	return strings.TrimSpace(b.String())
+	var fundB strings.Builder
+	for _, s := range fundSlots {
+		if s == "" {
+			continue
+		}
+		if fundB.Len() > 0 {
+			fundB.WriteString("\n\n\n\n")
+		}
+		fundB.WriteString(s)
+	}
+	return strings.TrimSpace(ctxB.String()), strings.TrimSpace(fundB.String())
 }
 
 func dedupeHintsPreserveOrder(hints []string) []string {
