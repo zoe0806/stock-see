@@ -22,7 +22,6 @@ import (
 	"stock-see/intent/queryaug"
 	"stock-see/kb"
 	"stock-see/memory"
-	"stock-see/observ"
 	"stock-see/prompt"
 	"stock-see/rag"
 	"stock-see/tools"
@@ -464,7 +463,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
 
 	//pipelineTiming 管道时间统计
-	pt := observ.PipelineTiming{
+	pt := tools.PipelineTiming{
 		IntentSlotMs:  aug.SlotMatchMs,  //词典倒排时间
 		IntentRulesMs: aug.ComboRulesMs, //规则引擎时间
 		RetrieveMs:    aug.RetrieveMs,   //向量检索时间
@@ -485,7 +484,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 			ExplicitSymbol: req.Symbol,
 			KBContext:      aug.Block,
 		})
-		tokenAcc = observ.MergeTokenUsage(tokenAcc, u)
+		tokenAcc = tools.MergeTokenUsage(tokenAcc, u)
 		pt.IntentFCMs = time.Since(tFC).Milliseconds()
 	}
 
@@ -590,11 +589,11 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 					flusher.Flush()
 				}
 				if msg != nil {
-					tokenAcc = observ.AppendMessageUsage(tokenAcc, msg)
+					tokenAcc = tools.AppendMessageUsage(tokenAcc, msg)
 				}
 			}
 		} else if out.Message != nil {
-			tokenAcc = observ.AppendMessageUsage(tokenAcc, out.Message)
+			tokenAcc = tools.AppendMessageUsage(tokenAcc, out.Message)
 			if out.Message.Content != "" {
 				fullReply.WriteString(out.Message.Content)
 				writeSSEData("message", out.Message.Content)
@@ -604,8 +603,8 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 	pt.GenerateMs = time.Since(tGen).Milliseconds()
 
-	observ.LogPipeline("[chat]", skipFC, pt, tokenAcc)
-	writeSSEData("metrics", observ.MetricsJSON(skipFC, pt, tokenAcc))
+	tools.LogPipeline("[chat]", skipFC, pt, tokenAcc)
+	writeSSEData("metrics", tools.MetricsJSON(skipFC, pt, tokenAcc))
 	flusher.Flush()
 
 	// 若有 symbol 且本轮有回复，写入 memory/stock/<symbol>/<date>.md
