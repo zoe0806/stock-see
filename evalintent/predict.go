@@ -7,6 +7,7 @@ package evalintent
 
 import (
 	"context"
+	"strings"
 
 	"stock-see/intent"
 	"stock-see/intent/combo"
@@ -39,7 +40,7 @@ func PredictPipeline(cm intent.ParseModel) intent.EvalPredictor {
 		if aug.ParsedCombo == nil {
 			return nil
 		}
-		nlRW := combo.NLQueryRewrite(c.UserMessage, aug.Slots)
+		nlRW := combo.NLQueryRewrite(c.UserMessage, aug.Slots, strings.TrimSpace(c.Symbol))
 		skipFC := combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
 		if skipFC {
 			return aug.ParsedCombo

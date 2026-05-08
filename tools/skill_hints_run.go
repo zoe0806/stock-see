@@ -150,13 +150,13 @@ func runSkillHintsOrderedSplit(ctx context.Context, symbol string, includeReport
 				log.Printf("[skill_hints] %s: %v", k, err)
 			}
 			nk := normalizeSkillHintKey(k)
-			if nk == "fundamental" {
+			if nk == "fundamental" || nk == "news" {
 				body = strings.TrimSpace(SanitizeToolTextForUser(body))
 				if body == "" {
 					ch <- out{i: idx, err: err}
 					return
 				}
-				ctxSec := "### " + title + "\n\n> 基本面完整报告已附在用户消息末尾「基本面预取」；回复时请概括要点，勿整段重复。"
+				ctxSec := "### " + title + "\n\n> 完整报告已附在用户消息末尾「预取」；回复时请概括要点，勿整段重复。"
 				ch <- out{i: idx, ctxSec: ctxSec, fundAppend: body}
 				return
 			}

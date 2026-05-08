@@ -147,6 +147,32 @@
         const sendButton = document.getElementById('send-button');
         const symbolInput = document.getElementById('symbol-input');
 
+        (function initChatSession() {
+            var sid = sessionStorage.getItem('stock_chat_session_id');
+            if (!sid) {
+                sid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
+                    : ('s' + Date.now() + '-' + Math.random().toString(36).slice(2));
+                sessionStorage.setItem('stock_chat_session_id', sid);
+            }
+            console.log('stock_chat_session_id', sid);
+            window.__stockChatSessionId = sid;
+        })();
+
+        function getLastSymbol() {
+            var lastSymbol = sessionStorage.getItem('stock_last_symbol');
+            console.log('getLastSymbol', lastSymbol);
+            return lastSymbol ? lastSymbol.trim() : '';
+        }
+        function rememberSymbol(code) {
+            if (code && /^\d{6}$/.test(code)) {
+                sessionStorage.setItem('stock_last_symbol', code);
+            }
+        }
+        function extractCodeFromText(text) {
+            var m = String(text).match(/\b(\d{6})\b/);
+            return m ? m[1] : '';
+        }
+
         
         // 与静态演示页一致：仅配置 highlight，其余用 marked 默认
         if (typeof marked !== 'undefined') {
@@ -225,8 +251,12 @@
 
         function sendMessage() {
             const message = messageInput.value.trim();
-            const symbol = symbolInput.value.trim();
+            const typed = symbolInput.value.trim();
+            const fromText = extractCodeFromText(message);
+            const symbol = typed || getLastSymbol() || fromText || '';
             if (!message) { messageInput.focus(); return; }
+            if (typed) rememberSymbol(typed);
+            else if (fromText) rememberSymbol(fromText);
             const userDisplay = message;
             const meta = symbol && ('标的 ' + symbol) || null;
             appendMessage('user', userDisplay, meta);
@@ -248,7 +278,11 @@
             fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: message, symbol: symbol || undefined })
+                body: JSON.stringify({
+                    message: message,
+                    symbol: symbol || undefined,
+                    session_id: window.__stockChatSessionId
+                })
             }).then(async (response) => {
                 if (!response.ok) {
                     contentEl.textContent = '请求失败: ' + response.status;

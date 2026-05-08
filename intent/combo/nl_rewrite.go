@@ -4,10 +4,10 @@ import "strings"
 
 // NLQueryRewrite 基于知识库倒排槽位，对用户查询做自然语言级改写：实体标准化（证券简称+代码）、
 // 时间短语与指标字段的规范中文拼接。
-// 改写尾部来自 MetricFields 的中文化（如「营收」→「营业收入」）；仅命中意图词、未在 metrics 配置同义词的语段不会出现在此句中，
-// 需在 knowledge.json 的 metrics 中补充 synonym→field，并在 metricFieldLabelsCN 给出口语标签。
-func NLQueryRewrite(original string, slots RawSlots) string {
+// explicitCode 为会话延续时的六位代码（如前端或后端缓存的「当前标的」）：当问句未命中股票槽位时，用于补全「它/这只」类指代。
+func NLQueryRewrite(original string, slots RawSlots, explicitCode string) string {
 	orig := strings.TrimSpace(original)
+	slots = mergeSlotsWithExplicit(slots, explicitCode)
 	core := composeEntityTimeMetricsNL(slots)
 	if core == "" {
 		return orig
@@ -18,6 +18,32 @@ func NLQueryRewrite(original string, slots RawSlots) string {
 	// 	return "关于" + core + "的" + q + "分析"
 	// }
 	return core
+}
+
+func mergeSlotsWithExplicit(slots RawSlots, explicitCode string) RawSlots {
+	explicitCode = strings.TrimSpace(explicitCode)
+	if explicitCode == "" || len(slots.MatchedStocks) > 0 || strings.TrimSpace(slots.SymbolCode) != "" {
+		return slots
+	}
+	if len(explicitCode) != 6 || !isAllDigits(explicitCode) {
+		return slots
+	}
+	out := slots
+	out.SymbolCode = explicitCode
+	out.SymbolName = PrimaryNameForCode(explicitCode)
+	if strings.TrimSpace(out.SymbolName) == "" {
+		out.SymbolName = explicitCode
+	}
+	return out
+}
+
+func isAllDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func composeEntityTimeMetricsNL(slots RawSlots) string {

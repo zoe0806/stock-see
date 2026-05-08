@@ -148,6 +148,26 @@ func buildIndex(k *kb.KnowledgeFile) *index {
 	return x
 }
 
+// PrimaryNameForCode 根据六位代码返回知识库中的证券简称（命中任一条别名索引即可）；未知返回空。
+func PrimaryNameForCode(code string) string {
+	code = strings.TrimSpace(code)
+	if len(code) != 6 {
+		return ""
+	}
+	x := defaultIndex()
+	if x == nil {
+		return ""
+	}
+	for _, sh := range x.stocks {
+		if sh.Code == code {
+			if n := strings.TrimSpace(sh.Name); n != "" {
+				return n
+			}
+		}
+	}
+	return ""
+}
+
 func appendUnique(slice []string, s string) []string {
 	for _, x := range slice {
 		if x == s {

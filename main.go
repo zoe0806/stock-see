@@ -402,7 +402,8 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	// 解析用户消息（可扩展：symbol、mode、context、session_history、workspace、memory）
 	var req struct {
 		Message        string `json:"message"`
-		Symbol         string `json:"symbol"`  // 可选：当前分析标的
+		Symbol         string `json:"symbol"` // 可选：当前分析标的（六位代码即可，无需传整段 Memory）
+		SessionID      string `json:"session_id"`
 		Context        string `json:"context"` // 可选：工作空间、记忆等
 		SessionHistory string `json:"session_history"`
 		Workspace      string `json:"workspace"`
@@ -416,11 +417,17 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	userMessage := req.Message
 	memoryContent := req.Memory
 	extraCtx := req.Context
-	if req.Symbol != "" {
+
+	effectiveSym := strings.TrimSpace(req.Symbol)
+	if effectiveSym == "" {
+		effectiveSym = tools.Get(strings.TrimSpace(req.SessionID))
+	}
+
+	if effectiveSym != "" {
 		if memoryContent == "" {
-			memoryContent = memory.FormatMemoryWithLastReport(req.Symbol)
+			memoryContent = memory.FormatMemoryWithLastReport(effectiveSym)
 			if memoryContent == "" {
-				memoryContent, _ = memory.ReadStockMemory(req.Symbol, "")
+				memoryContent, _ = memory.ReadStockMemory(effectiveSym, "")
 			}
 		}
 	}
@@ -457,8 +464,8 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 
 	// 查询改写：知识库槽位 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
-	aug := queryaug.Build(r.Context(), um, req.SessionHistory, req.Symbol)
-	nlRW := combo.NLQueryRewrite(um, aug.Slots)
+	aug := queryaug.Build(r.Context(), um, req.SessionHistory, effectiveSym)
+	nlRW := combo.NLQueryRewrite(um, aug.Slots, effectiveSym)
 	log.Println("nlRW", nlRW)
 	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
 
@@ -481,7 +488,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		parsed, u = intent.ParseWithUsage(r.Context(), parseModel, intent.ParseInput{
 			UserMessage:    umForIntent,
 			SessionHistory: req.SessionHistory,
-			ExplicitSymbol: req.Symbol,
+			ExplicitSymbol: effectiveSym,
 			KBContext:      aug.Block,
 		})
 		tokenAcc = tools.MergeTokenUsage(tokenAcc, u)
@@ -499,12 +506,17 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		}
 	}
 
-	sym := strings.TrimSpace(req.Symbol)
+	sym := effectiveSym
 	if sym == "" && parsed != nil && len(parsed.Symbols) > 0 {
 		sym = parsed.Symbols[0]
 	}
 	if sym == "" {
 		sym = kb.TopStockCodeFromHits(aug.Hits)
+	}
+	if sid := strings.TrimSpace(req.SessionID); sid != "" && sym != "" {
+		if ns := intent.NormalizeSymbols([]string{sym}); len(ns) > 0 {
+			tools.Put(sid, ns[0])
+		}
 	}
 	var hints []string
 	if parsed != nil {
@@ -552,9 +564,9 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	// 基本面完整预取只附在用户消息末段一次，避免与 System Context（Extra）重复
 	newMsg := intent.UserMessageWithNLRewrite(um, nlRW, parsed)
 	if strings.TrimSpace(pref.FundamentalForUser) != "" {
-		newMsg += "\n\n---\n## 基本面预取\n\n" + strings.TrimSpace(pref.FundamentalForUser)
+		newMsg += "\n\n---\n## 预取\n\n" + strings.TrimSpace(pref.FundamentalForUser)
 	}
-	log.Println("newMsg", newMsg)
+	//log.Println("newMsg", newMsg)
 
 	messages := []*schema.Message{schema.UserMessage(newMsg)} //该轮对话用户消息
 
@@ -615,9 +627,11 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	writeSSEData("metrics", tools.MetricsJSON(skipFC, pt, tokenAcc))
 	flusher.Flush()
 
-	// 若有 symbol 且本轮有回复，写入 memory/stock/<symbol>/<date>.md
-	if req.Symbol != "" && fullReply.Len() > 0 {
-		_ = memory.WriteStockMemory(req.Symbol, "", fullReply.String())
+	// 若有解析出的标的且本轮有回复，写入 memory/stock/<symbol>/<date>.md
+	if sym != "" && fullReply.Len() > 0 {
+		if ns := intent.NormalizeSymbols([]string{sym}); len(ns) > 0 {
+			_ = memory.WriteStockMemory(ns[0], "", fullReply.String())
+		}
 	}
 	fmt.Fprintf(w, "event: done\ndata: \n\n")
 	flusher.Flush()
