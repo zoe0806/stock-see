@@ -8,10 +8,8 @@ package queryaug
 
 import (
 	"context"
-	"log"
-
-	//"log"
 	"strings"
+	"time"
 
 	"stock-see/intent"
 	"stock-see/intent/combo"
@@ -24,10 +22,14 @@ import (
 
 // Result 单次查询增强产物。
 type Result struct {
-	Block       string
-	Hits        []kb.Hit
-	Slots       combo.RawSlots
-	ParsedCombo *intent.ParsedIntent
+	Block        string
+	Hits         []kb.Hit
+	Slots        combo.RawSlots
+	ParsedCombo  *intent.ParsedIntent
+	SlotMatchMs  int64 // MatchSlots 耗时（毫秒）
+	ComboRulesMs int64 // ApplyComboRules（及 easyrules）耗时（毫秒）
+	RetrieveMs   int64 // 向量检索（启用 IntentKnowledgeRAG 时）
+	RerankMs     int64 // 重排（若检索链路拆分）
 }
 
 // Build：槽位 + 规则 → ParsedCombo；
@@ -40,22 +42,23 @@ func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol stri
 		return out
 	}
 
-	//倒排，抽出 股票 / 意图词命中 / 指标 field / 时间短语 等原始槽位
+	t0 := time.Now()
 	out.Slots = combo.MatchSlots(um)
+	out.SlotMatchMs = time.Since(t0).Milliseconds()
+
+	t1 := time.Now()
 	var p *intent.ParsedIntent
 	if tools.IntentEasyRulesEnabled() {
-		//规则引擎，现阶段不需要
 		p = easyrules.ApplyOver(combo.ApplyComboRules(out.Slots, um), um)
 	} else {
-		//在槽位上做 组合与冲突消解
 		p = combo.ApplyComboRules(out.Slots, um)
 	}
+	out.ComboRulesMs = time.Since(t1).Milliseconds()
+
 	if p != nil {
 		intent.MergeExplicitSymbol(p, explicitSymbol)
 	}
 	out.ParsedCombo = p
-	log.Println("out.ParsedCombo", out.ParsedCombo)
-	log.Println("out.Slots", out.Slots)
 
 	// var block string
 	// if tools.IntentKnowledgeRAGEnabled() {

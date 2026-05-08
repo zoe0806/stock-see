@@ -24,12 +24,18 @@ type ParseModel interface {
 
 // Parse 使用强制 Function Calling 解析意图；失败或未配置时返回 nil。
 func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
+	p, _ := ParseWithUsage(ctx, cm, in)
+	return p
+}
+
+// ParseWithUsage 同 Parse，并返回本次 FC 调用的 token 用量（若模型实现返回）。
+func ParseWithUsage(ctx context.Context, cm ParseModel, in ParseInput) (*ParsedIntent, *schema.TokenUsage) {
 	if strings.TrimSpace(os.Getenv(disableIntentEnv)) == "1" || cm == nil {
-		return nil
+		return nil, nil
 	}
 	userText := buildUserContent(in)
 	if userText == "" {
-		return nil
+		return nil, nil
 	}
 
 	sys, toolDesc, err := tools.ResolveIntentPrompts(DefaultIntentParseSystem, DefaultSubmitParsedIntentToolDesc)
@@ -40,7 +46,7 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 
 	tcm, err := cm.WithTools([]*schema.ToolInfo{SubmitParsedIntentToolInfo(toolDesc)})
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	msgs := []*schema.Message{
@@ -48,19 +54,24 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 		schema.UserMessage(userText),
 	}
 
-	//调用模型生成意图，按需输出工具调用请求，实现 Function Calling
 	resp, err := tcm.Generate(ctx, msgs,
-		model.WithToolChoice(schema.ToolChoiceForced, submitParsedIntentToolName), //强制模型必须调用submitParsedIntentToolName工具（不能输出普通文本）
-		model.WithTemperature(0.1), //控制输出文本的随机性/创造性,数值越小，越确定、保守。
-		model.WithMaxTokens(512),   //最大token数
+		model.WithToolChoice(schema.ToolChoiceForced, submitParsedIntentToolName),
+		model.WithTemperature(0.1),
+		model.WithMaxTokens(512),
 	)
 	if err != nil || resp == nil {
-		return nil
+		return nil, nil
 	}
 
-	args := firstSubmitParsedIntentArgs(resp.ToolCalls) //从模型输出中提取 submit_parsed_intent 工具调用的参数（JSON 字符串）
+	var usage *schema.TokenUsage
+	if resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
+		u := *resp.ResponseMeta.Usage
+		usage = &u
+	}
+
+	args := firstSubmitParsedIntentArgs(resp.ToolCalls)
 	if args == "" {
-		return nil
+		return nil, usage
 	}
 
 	var raw struct {
@@ -74,7 +85,7 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 		Confidence    float64  `json:"confidence"`
 	}
 	if err := sonic.UnmarshalString(args, &raw); err != nil {
-		return nil
+		return nil, usage
 	}
 	log.Println("Parse args", args, in.UserMessage, in.ExplicitSymbol)
 	p := &ParsedIntent{
@@ -88,10 +99,9 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 		Confidence:    raw.Confidence,
 		Source:        "llm_tool",
 	}
-	//校验并规范化意图
 	ValidateAndPatch(p, in.UserMessage)
 	MergeExplicitSymbol(p, in.ExplicitSymbol)
-	return p
+	return p, usage
 }
 
 func buildUserContent(in ParseInput) string {

@@ -22,6 +22,7 @@ import (
 	"stock-see/intent/queryaug"
 	"stock-see/kb"
 	"stock-see/memory"
+	"stock-see/observ"
 	"stock-see/prompt"
 	"stock-see/rag"
 	"stock-see/tools"
@@ -459,19 +460,32 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	// 查询改写：知识库槽位 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
 	aug := queryaug.Build(r.Context(), um, req.SessionHistory, req.Symbol)
 	nlRW := combo.NLQueryRewrite(um, aug.Slots)
+	log.Println("nlRW", nlRW)
 	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
-	fmt.Println("skipFC", skipFC)
+
+	pt := observ.PipelineTiming{
+		IntentSlotMs:  aug.SlotMatchMs,
+		IntentRulesMs: aug.ComboRulesMs,
+		RetrieveMs:    aug.RetrieveMs,
+		RerankMs:      aug.RerankMs,
+	}
+	var tokenAcc *schema.TokenUsage
+
 	var parsed *intent.ParsedIntent
 	if skipFC {
 		parsed = aug.ParsedCombo
 	} else {
+		tFC := time.Now()
+		var u *schema.TokenUsage
 		umForIntent := intent.MergeRewrittenAndOriginal(um, nlRW)
-		parsed = intent.Parse(r.Context(), parseModel, intent.ParseInput{
+		parsed, u = intent.ParseWithUsage(r.Context(), parseModel, intent.ParseInput{
 			UserMessage:    umForIntent,
 			SessionHistory: req.SessionHistory,
 			ExplicitSymbol: req.Symbol,
 			KBContext:      aug.Block,
 		})
+		tokenAcc = observ.MergeTokenUsage(tokenAcc, u)
+		pt.IntentFCMs = time.Since(tFC).Milliseconds()
 	}
 
 	if parsed != nil && len(parsed.Symbols) == 0 {
@@ -503,12 +517,15 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	if len(prefetchSyms) == 0 && sym != "" {
 		prefetchSyms = []string{sym}
 	}
+	log.Println("parsed", parsed.SkillHints, parsed.Symbols, prefetchSyms)
+	tPrefetch := time.Now()
 	if block := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints); block != "" {
 		if extraCtx != "" {
 			extraCtx += "\n\n"
 		}
 		extraCtx += "##请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + block
 	}
+	pt.PrefetchMs = time.Since(tPrefetch).Milliseconds()
 	//根据意图加载对应skills文档，构建上下文
 	// matchText = intent.EnrichMatchText(matchText, parsed)
 	// if parsed != nil {
@@ -518,6 +535,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	// skillPaths := loadMatchedSkillPaths(skillsRoot, matchText)
 	// skillsContent := prompt.LoadSkillsContent(skillPaths)
 
+	tCtx := time.Now()
 	contextBlock := prompt.BuildContext(prompt.ContextInput{
 		SessionHistory: req.SessionHistory,
 		Workspace:      req.Workspace,
@@ -527,9 +545,12 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		Skills:         "",
 		Extra:          extraCtx,
 	})
-	fmt.Println("userMessage", userMessage)
-	fmt.Println("nlRW", nlRW)
-	messages := []*schema.Message{schema.UserMessage(nlRW)}
+	pt.ContextMs = time.Since(tCtx).Milliseconds()
+
+	newMsg := intent.UserMessageWithNLRewrite(um, nlRW, parsed)
+	fmt.Println("newMsg", newMsg)
+	messages := []*schema.Message{schema.UserMessage(newMsg)}
+	tGen := time.Now()
 	iterator := runner.Run(r.Context(), messages, adk.WithSessionValues(map[string]any{
 		"Context": contextBlock,
 	}))
@@ -562,21 +583,29 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 					break
 				}
 				if msg != nil && msg.Content != "" {
-					//AI model 返回 stream 流式回复，包含 现在我来帮你分析等过程内容，也包含最后的综合报告
 					fullReply.WriteString(msg.Content)
 					writeSSEData("message", msg.Content)
 					flusher.Flush()
 				}
+				if msg != nil {
+					tokenAcc = observ.AppendMessageUsage(tokenAcc, msg)
+				}
 			}
-		} else if out.Message != nil && out.Message.Content != "" {
-			//AI model tools 工具调用返回回复
-
-			//fullReply.WriteString(out.Message.Content)
-			//writeSSEData("message", out.Message.Content)
-			//fmt.Println("out.Message", out.Message.Content)
-			//flusher.Flush()
+		} else if out.Message != nil {
+			tokenAcc = observ.AppendMessageUsage(tokenAcc, out.Message)
+			if out.Message.Content != "" {
+				fullReply.WriteString(out.Message.Content)
+				writeSSEData("message", out.Message.Content)
+				flusher.Flush()
+			}
 		}
 	}
+	pt.GenerateMs = time.Since(tGen).Milliseconds()
+
+	observ.LogPipeline("[chat]", skipFC, pt, tokenAcc)
+	writeSSEData("metrics", observ.MetricsJSON(skipFC, pt, tokenAcc))
+	flusher.Flush()
+
 	// 若有 symbol 且本轮有回复，写入 memory/stock/<symbol>/<date>.md
 	if req.Symbol != "" && fullReply.Len() > 0 {
 		_ = memory.WriteStockMemory(req.Symbol, "", fullReply.String())
