@@ -119,11 +119,11 @@ func RunEvalWithPredictor(ctx context.Context, suitePath string, mode string, pr
 		return nil, fmt.Errorf("intent eval: nil predictor")
 	}
 	out := &IntentEvalSummary{
-		SuitePath:    suitePath,
-		Mode:         strings.TrimSpace(mode),
-		EvaluatedAt:  time.Now().UTC().Format(time.RFC3339),
-		Total:        len(su.Cases),
-		Results:      make([]IntentEvalResult, 0, len(su.Cases)),
+		SuitePath:      suitePath,
+		Mode:           strings.TrimSpace(mode),
+		EvaluatedAt:    time.Now().UTC().Format(time.RFC3339),
+		Total:          len(su.Cases),
+		Results:        make([]IntentEvalResult, 0, len(su.Cases)),
 		ByExpectedTask: make([]TaskKindBucket, 0),
 	}
 	var taskHits, symHits, symTotal int
