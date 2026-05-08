@@ -15,6 +15,7 @@ import (
 
 	"stock-see/cronstock"
 	"stock-see/eval"
+	"stock-see/evalintent"
 	"stock-see/intent"
 	"stock-see/intent/combo"
 	"stock-see/intent/easyrules"
@@ -45,9 +46,11 @@ func main() {
 	evalFlag := flag.Bool("eval", false, "运行离线评测集（读取 -eval-suite 或 config.eval.defaultSuitePath），打印均分后退出")
 	evalSuite := flag.String("eval-suite", "", "评测集 JSON 路径（默认可由 config eval.defaultSuitePath 指定）")
 	evalJSONOut := flag.String("eval-json", "", "评测汇总写入该 JSON 文件（可选）")
-	evalIntentFlag := flag.Bool("eval-intent", false, "运行意图评测集（Function Calling），打印 taskAccuracy / averageScore 后退出")
+	evalIntentFlag := flag.Bool("eval-intent", false, "运行意图评测集，打印准确率与均分后退出")
 	evalIntentSuite := flag.String("eval-intent-suite", "", "意图评测集 JSON（默认 config eval.defaultIntentSuitePath 或 data/eval/intent_suite.json）")
 	evalIntentJSONOut := flag.String("eval-intent-json", "", "意图评测汇总写入该 JSON 文件（可选）")
+	evalIntentMode := flag.String("eval-intent-mode", "fc", "解析路径：fc=仅模型 FC；combo=词典+规则；pipeline=与线上一致（高置信槽位跳过 FC）")
+	evalIntentVerbose := flag.Bool("eval-intent-verbose", false, "逐条打印未满分用例的 Notes")
 	evalRetrievalFlag := flag.Bool("eval-retrieval", false, "运行检索评测（Redis+embedding），对比 vector / hybrid / hybrid_rerank 的 Hit@K 后退出（无需对话模型）")
 	evalRetrievalSuite := flag.String("eval-retrieval-suite", "", "检索评测集 JSON（默认 config eval.defaultRetrievalSuitePath 或 data/eval/retrieval_suite.json）")
 	evalRetrievalJSONOut := flag.String("eval-retrieval-json", "", "检索评测汇总写入该 JSON（可选）")
@@ -139,13 +142,41 @@ func main() {
 		if suitePath == "" {
 			suitePath = "data/eval/intent_suite.json"
 		}
-		sum, err := intent.RunEval(ctx, chatModel, suitePath)
+		mode := strings.TrimSpace(*evalIntentMode)
+		var predict intent.EvalPredictor
+		switch mode {
+		case "combo":
+			predict = evalintent.PredictCombo()
+		case "pipeline":
+			predict = evalintent.PredictPipeline(chatModel)
+		default:
+			mode = "fc"
+			predict = evalintent.PredictFC(chatModel)
+		}
+		sum, err := intent.RunEvalWithPredictor(ctx, suitePath, mode, predict)
 		if err != nil {
 			log.Fatalf("意图评测失败: %v", err)
 		}
-		log.Printf("意图评测 suite=%s 用例数=%d task=%.2f%% symbols=%.2f%%（n=%d） hints=%.2f%%（n=%d）均分=%.2f",
-			sum.SuitePath, sum.Total, sum.TaskAccuracy*100, sum.SymbolAccuracy*100, sum.SymbolCases,
-			sum.HintAccuracy*100, sum.HintCases, sum.AverageScore)
+		axisPart := "compare_axis=n/a"
+		if sum.CompareAxisCases > 0 {
+			axisPart = fmt.Sprintf("compare_axis=%.2f%%（n=%d）", sum.CompareAxisAccuracy*100, sum.CompareAxisCases)
+		}
+		log.Printf("意图评测 suite=%s mode=%s evaluatedAt=%s 用例数=%d task=%.2f%% symbols=%.2f%%（n=%d） hints=%.2f%%（n=%d） %s 均分=%.2f",
+			sum.SuitePath, sum.Mode, sum.EvaluatedAt, sum.Total,
+			sum.TaskAccuracy*100, sum.SymbolAccuracy*100, sum.SymbolCases,
+			sum.HintAccuracy*100, sum.HintCases, axisPart, sum.AverageScore)
+		for _, b := range sum.ByExpectedTask {
+			log.Printf("  └─ 期望 task_kind=%s: %.2f%% (%d/%d)", b.ExpectedKind, b.Accuracy*100, b.TaskHits, b.Count)
+		}
+		if *evalIntentVerbose {
+			for _, r := range sum.Results {
+				if r.Score >= 1 {
+					continue
+				}
+				log.Printf("[eval-intent] id=%s score=%.2f task=%v syms=%v hints=%v axis=%v notes=%s",
+					r.ID, r.Score, r.OKTask, r.OKSymbols, r.OKHints, r.OKCompareAxis, r.Notes)
+			}
+		}
 		if p := strings.TrimSpace(*evalIntentJSONOut); p != "" {
 			b, _ := json.MarshalIndent(sum, "", "  ")
 			if err := os.WriteFile(p, b, 0644); err != nil {

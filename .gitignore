@@ -6,6 +6,7 @@
 /cronstock/
 /kb/
 /cmd/
+/.idea/
 
 # 配置
 /config/

@@ -44,6 +44,7 @@ func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol stri
 	out.Slots = combo.MatchSlots(um)
 	var p *intent.ParsedIntent
 	if tools.IntentEasyRulesEnabled() {
+		//规则引擎，现阶段不需要
 		p = easyrules.ApplyOver(combo.ApplyComboRules(out.Slots, um), um)
 	} else {
 		//在槽位上做 组合与冲突消解
@@ -58,6 +59,7 @@ func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol stri
 
 	// var block string
 	// if tools.IntentKnowledgeRAGEnabled() {
+	//简单意图使用向量检索补充，只针对四要素
 	// 	var qb strings.Builder
 	// 	qb.WriteString(um)
 	// 	if h := strings.TrimSpace(sessionHistory); h != "" {
@@ -77,6 +79,7 @@ func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol stri
 	// 		}
 	// 	}
 	// } else if tools.IntentFewShotForIntentParse() {
+	//复杂意图使用 Few-shot 补充，需要增加意图复杂度检查，目前没有实现，暂不开启
 	// 	fsPath := tools.IntentFewShotExamplesPath()
 	// 	if fs := fewshot.FormatTopK(ctx, um, fsPath, 2); fs != "" {
 	// 		block = fs
