@@ -537,6 +537,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	// skillsContent := prompt.LoadSkillsContent(skillPaths)
 
 	tCtx := time.Now()
+	//动态构造上下文（系统提示词{Context}）
 	contextBlock := prompt.BuildContext(prompt.ContextInput{
 		SessionHistory: req.SessionHistory,
 		Workspace:      req.Workspace,
@@ -548,15 +549,19 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	})
 	pt.ContextMs = time.Since(tCtx).Milliseconds()
 
-	// 基本面完整预取只附在用户消息末段一次，避免与 System Context（Extra）重复两遍长文
+	// 基本面完整预取只附在用户消息末段一次，避免与 System Context（Extra）重复
 	newMsg := intent.UserMessageWithNLRewrite(um, nlRW, parsed)
 	if strings.TrimSpace(pref.FundamentalForUser) != "" {
 		newMsg += "\n\n---\n## 基本面预取\n\n" + strings.TrimSpace(pref.FundamentalForUser)
 	}
-	messages := []*schema.Message{schema.UserMessage(newMsg)}
+	log.Println("newMsg", newMsg)
+
+	messages := []*schema.Message{schema.UserMessage(newMsg)} //该轮对话用户消息
+
+	//生成回复
 	tGen := time.Now()
 	iterator := runner.Run(r.Context(), messages, adk.WithSessionValues(map[string]any{
-		"Context": contextBlock,
+		"Context": contextBlock, //注入系统提示词{Context}
 	}))
 
 	var fullReply strings.Builder

@@ -132,7 +132,7 @@ func (t *RunFundamentalTool) InvokableRun(ctx context.Context, argumentsInJSON s
 			Report string `json:"report"`
 		}
 		if _ = sonic.UnmarshalString(s, &out); out.Report != "" {
-			fmt.Println("fundamental report", out.Report)
+			//fmt.Println("fundamental report", out.Report)
 			return out.Report, nil
 		}
 		return s, nil

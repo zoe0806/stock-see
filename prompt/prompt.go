@@ -1,9 +1,9 @@
-// Package prompt 实现 OpenClaw 风格提示词：内置默认模板（可被 config 版本覆盖）+ 动态注入上下文。
+// Package prompt 实现 动态构建提示词：内置默认模板（可被 config 版本覆盖）+ 动态注入上下文。
 package prompt
 
 import "strings"
 
-// DefaultSystemInstructionTemplate 内置系统指令；config 中当前版本对应字段为空时回退到此内容。
+// DefaultSystemInstructionTemplate 内置系统指令；模型每次生成前，都会先看到「系统指令 + 展开后的 {Context}
 // 占位符 {Context} 由 SessionValues 在运行时替换为 BuildContext 的输出。
 const DefaultSystemInstructionTemplate = `# 系统指令（System Prompt）
 
@@ -50,7 +50,7 @@ type ContextInput struct {
 }
 
 // BuildContext 根据 ContextInput 组装「上下文」块，用于注入系统提示词中的 {Context}。
-// 与 OpenClaw 一致：动态注入工作空间、记忆、技能、会话历史；股票助手可注入行情与新闻摘要。
+// 动态注入工作空间、记忆、技能、会话历史；股票助手可注入行情与新闻摘要。
 func BuildContext(in ContextInput) string {
 	var parts []string
 	if in.MarketContext != "" {
