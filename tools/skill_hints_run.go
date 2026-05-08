@@ -13,12 +13,12 @@ const disableSkillHintToolsEnv = "STOCK_SKILL_HINT_TOOLS_DISABLE"
 
 // RunSkillHintsTools 按意图中的 skill_hints 直接执行对应 tool.BaseTool（不经 Agent 调度），
 // 将各段 Markdown 按 hints 顺序拼接，供注入上下文「其他上下文」。
-// symbol 须为六位代码；market-trend 等不依赖 symbol 的仍会执行。
-func RunSkillHintsTools(ctx context.Context, symbol string, userMessage string, hints []string) string {
+// symbols 为六位代码列表：单标的时行为与原先一致；多标的时为每只标的分别执行依赖 symbol 的 hint，
+// 不依赖标的的 hint（如 market-trend）全局只执行一次并置于段首。
+func RunSkillHintsTools(ctx context.Context, symbols []string, userMessage string, hints []string) string {
 	if strings.TrimSpace(os.Getenv(disableSkillHintToolsEnv)) == "1" {
 		return ""
 	}
-	symbol = strings.TrimSpace(symbol)
 	if len(hints) == 0 {
 		return ""
 	}
@@ -28,6 +28,83 @@ func RunSkillHintsTools(ctx context.Context, symbol string, userMessage string, 
 		return ""
 	}
 
+	syms := normalizePrefetchSymbols(symbols)
+	perSym, global := partitionSkillHints(ordered)
+
+	if len(syms) <= 1 {
+		sym := ""
+		if len(syms) == 1 {
+			sym = syms[0]
+		}
+		return runSkillHintsOrdered(ctx, sym, includeReports, ordered)
+	}
+
+	// 多标的：先全局 hint，再按标的分段（避免大盘类重复跑多次）
+	var b strings.Builder
+	if len(global) > 0 {
+		if g := runSkillHintsOrdered(ctx, "", includeReports, global); strings.TrimSpace(g) != "" {
+			b.WriteString(strings.TrimSpace(g))
+		}
+	}
+	for _, sym := range syms {
+		body := runSkillHintsOrdered(ctx, sym, includeReports, perSym)
+		if strings.TrimSpace(body) == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n\n\n")
+		}
+		b.WriteString("## 标的 ")
+		b.WriteString(sym)
+		b.WriteString("\n\n")
+		b.WriteString(strings.TrimSpace(body))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func normalizePrefetchSymbols(symbols []string) []string {
+	seen := make(map[string]struct{}, len(symbols))
+	var out []string
+	for _, s := range symbols {
+		s = strings.TrimSpace(s)
+		if len(s) != 6 || !prefetchDigitsOnly(s) {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+func prefetchDigitsOnly(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// partitionSkillHints 将不依赖具体标的的 hint 拆出，多标的时只执行一次。
+func partitionSkillHints(ordered []string) (perSymbol []string, global []string) {
+	for _, k := range ordered {
+		if k == "market-trend" {
+			global = append(global, k)
+			continue
+		}
+		perSymbol = append(perSymbol, k)
+	}
+	return
+}
+
+// runSkillHintsOrdered 按 ordered 顺序并行执行各 hint，输出顺序与 ordered 一致。
+func runSkillHintsOrdered(ctx context.Context, symbol string, includeReports bool, ordered []string) string {
+	if len(ordered) == 0 {
+		return ""
+	}
 	type out struct {
 		i   int
 		md  string

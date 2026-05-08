@@ -22,9 +22,29 @@ type StockConfig struct {
 
 // IntentConfig 对话意图侧可选行为（与资讯 RAG 的 rag.enabled 独立）。
 type IntentConfig struct {
-	// KnowledgeRAGEnabled 为 false 时不检索 knowledge.json 向量索引，不向意图 FC 注入 KB 摘要，也不走「RAG 命中 intent → 跳过 FC」短路。
-	// JSON 省略该字段时默认开启，与历史行为一致。
+	// KnowledgeRAGEnabled 为 false 时不使用 Redis 向量检索参与意图。
+	// 为 true 时仅在「本地槽位组合不足以跳过 FC」时检索（与倒排索引互斥补充，避免每请求双重命中）；详见 IntentKnowledgeRAGEnabled 注释。
+	// JSON 省略该字段时默认开启。
 	KnowledgeRAGEnabled *bool `json:"knowledgeRagEnabled"`
+	// EasyRules 为 true 时启用「规则引擎」模式（config/intent_rules.json）；为 false（默认）仅用内存倒排 + 槽位组合。
+	EasyRules *bool `json:"easyRules"`
+	// IntentRulesPath 规则文件路径（相对工作目录或绝对路径）；默认可为 config/intent_rules.json。
+	IntentRulesPath string `json:"intentRulesPath"`
+	// FewShotExamplesPath Few-shot 结构化示例 JSON；默认 data/intent_fewshot.json。
+	FewShotExamplesPath string `json:"fewShotExamplesPath"`
+	// FewShotForIntentParse 为 true 时在意图 FC 的 KBContext 中附加 Few-shot（需 embedding）；默认 false。
+	// 与 knowledgeRAG 二选一更佳：开向量检索时优先用 RAG，不再叠 Few-shot。
+	FewShotForIntentParse *bool `json:"fewShotForIntentParse"`
+	// SkipFCWhenConfident 为 true（默认）且本地槽位+规则满足高置信条件时，跳过意图 Function Calling。
+	SkipFCWhenConfident *bool `json:"skipFCWhenConfident"`
+	// InjectQueryAugToExtra 为 true 时将完整 queryaug 块写入对话 Extra（token 大）；默认 false，仅把改写用于 FC 的 KBContext。
+	InjectQueryAugToExtra *bool `json:"injectQueryAugToExtra"`
+	// InjectCompactIntentToExtra 为 true（默认）时在 Extra 追加一行意图摘要；与 injectQueryAugToExtra 可同时关以极简上下文。
+	InjectCompactIntentToExtra *bool `json:"injectCompactIntentToExtra"`
+	// InjectSkillPrefetchToExtra 为 true 时将 RunSkillHintsTools（支持多标的分段）的 Markdown 拼入 Extra（token 大）；默认 false，需盘面/新闻事实时再开。
+	InjectSkillPrefetchToExtra *bool `json:"injectSkillPrefetchToExtra"`
+	// UseStructuredRewriteInUserMessage 为 true（默认）时，将知识库自然语言改写句写入主模型 User 消息（见 intent.NLQueryRewrite）。
+	UseStructuredRewriteInUserMessage *bool `json:"useStructuredRewriteInUserMessage"`
 }
 
 // StockPythonConfig 对应 config 中 stockPython 段。
@@ -118,8 +138,9 @@ func RAGEnabled() bool {
 
 const intentKbRAGEnv = "STOCK_INTENT_KB_RAG"
 
-// IntentKnowledgeRAGEnabled 是否启用「知识库 RAG → 意图」链路（检索、FC 前置 KB 摘要、RAG intent 短路）。
-// 优先环境变量 STOCK_INTENT_KB_RAG：0/false/off 关闭，1/true/on 开启；未设置则读 config intent.knowledgeRagEnabled（默认 true）。
+// IntentKnowledgeRAGEnabled 是否允许在「需要时」使用 Redis 知识库向量检索。
+// 实际调用时机由 main 控制：仅当本地倒排+槽位（及规则引擎）不足以 ShouldSkipFC 时才会 Search，避免与同一 knowledge.json 的内存倒排重复推理。
+// 环境变量 STOCK_INTENT_KB_RAG：0/false/off 关闭，1/true/on 开启；未设置则读 config intent.knowledgeRagEnabled（默认 true）。
 func IntentKnowledgeRAGEnabled() bool {
 	if v := strings.TrimSpace(os.Getenv(intentKbRAGEnv)); v != "" {
 		switch strings.ToLower(v) {
@@ -136,6 +157,97 @@ func IntentKnowledgeRAGEnabled() bool {
 		return true
 	}
 	return *c.Intent.KnowledgeRAGEnabled
+}
+
+const intentEasyRulesEnv = "STOCK_INTENT_EASYRULES"
+
+// IntentEasyRulesEnabled 为 true 时使用 JSON 规则引擎层（见 intent/easyrules）；false（默认）使用倒排 + 槽位组合 + Few-shot。
+func IntentEasyRulesEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv(intentEasyRulesEnv)); v != "" {
+		switch strings.ToLower(v) {
+		case "0", "false", "off", "no":
+			return false
+		case "1", "true", "on", "yes":
+			return true
+		}
+	}
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.EasyRules == nil {
+		return false
+	}
+	return *c.Intent.EasyRules
+}
+
+// IntentFewShotExamplesPath Few-shot 示例文件路径。
+func IntentFewShotExamplesPath() string {
+	c := loadStockConfig()
+	if c != nil && c.Intent != nil && strings.TrimSpace(c.Intent.FewShotExamplesPath) != "" {
+		return strings.TrimSpace(c.Intent.FewShotExamplesPath)
+	}
+	return filepath.Join("data", "intent_fewshot.json")
+}
+
+// IntentRulesFilePath 规则引擎使用的 JSON 路径。
+func IntentRulesFilePath() string {
+	c := loadStockConfig()
+	if c != nil && c.Intent != nil && strings.TrimSpace(c.Intent.IntentRulesPath) != "" {
+		return strings.TrimSpace(c.Intent.IntentRulesPath)
+	}
+	return filepath.Join("config", "intent_rules.json")
+}
+
+// IntentFewShotForIntentParse 是否在 FC 的 queryaug 块中启用 Few-shot（默认 false，与 NL 改写分工：词典改写已进 UserMessage）。
+func IntentFewShotForIntentParse() bool {
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.FewShotForIntentParse == nil {
+		return false
+	}
+	return *c.Intent.FewShotForIntentParse
+}
+
+// IntentSkipFCWhenConfident 高置信时跳过意图 FC（默认 true）。
+func IntentSkipFCWhenConfident() bool {
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.SkipFCWhenConfident == nil {
+		return true
+	}
+	return *c.Intent.SkipFCWhenConfident
+}
+
+// IntentInjectQueryAugToExtra 是否把完整 queryaug 写入对话 Extra（默认 false）。
+func IntentInjectQueryAugToExtra() bool {
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.InjectQueryAugToExtra == nil {
+		return false
+	}
+	return *c.Intent.InjectQueryAugToExtra
+}
+
+// IntentInjectCompactIntentToExtra 是否在 Extra 追加单行意图摘要（默认 false，避免与结构化改写重复占 token）。
+func IntentInjectCompactIntentToExtra() bool {
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.InjectCompactIntentToExtra == nil {
+		return false
+	}
+	return *c.Intent.InjectCompactIntentToExtra
+}
+
+// IntentInjectSkillPrefetchToExtra 是否将工具预取 Markdown 拼入 Extra（默认 false）。
+func IntentInjectSkillPrefetchToExtra() bool {
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.InjectSkillPrefetchToExtra == nil {
+		return false
+	}
+	return *c.Intent.InjectSkillPrefetchToExtra
+}
+
+// IntentUseStructuredRewriteInUserMessage 是否把结构化问法写入主模型用户消息（默认 true）。
+func IntentUseStructuredRewriteInUserMessage() bool {
+	c := loadStockConfig()
+	if c == nil || c.Intent == nil || c.Intent.UseStructuredRewriteInUserMessage == nil {
+		return true
+	}
+	return *c.Intent.UseStructuredRewriteInUserMessage
 }
 
 func loadStockConfig() *StockConfig {

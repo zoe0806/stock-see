@@ -97,7 +97,7 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 func buildUserContent(in ParseInput) string {
 	var parts []string
 	if k := strings.TrimSpace(in.KBContext); k != "" {
-		parts = append(parts, "【知识库 RAG 检索（knowledge.json）】\n"+k)
+		parts = append(parts, "【知识库查询改写与结构化参考】\n"+k)
 	}
 	if u := strings.TrimSpace(in.UserMessage); u != "" {
 		parts = append(parts, "【当前用户输入】\n"+u)

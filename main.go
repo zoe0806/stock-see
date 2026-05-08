@@ -16,6 +16,9 @@ import (
 	"stock-see/cronstock"
 	"stock-see/eval"
 	"stock-see/intent"
+	"stock-see/intent/combo"
+	"stock-see/intent/easyrules"
+	"stock-see/intent/queryaug"
 	"stock-see/kb"
 	"stock-see/memory"
 	"stock-see/prompt"
@@ -202,6 +205,12 @@ func main() {
 	// 定时任务：每小时拉取新闻写入 RAG（Redis 未配置时自动跳过）
 	go runRAGTicker()
 
+	if tools.IntentEasyRulesEnabled() {
+		if err := easyrules.Load(tools.IntentRulesFilePath()); err != nil {
+			log.Printf("[easyrules] 初始加载失败（仅槽位组合生效）: %v", err)
+		}
+	}
+
 	// 提供静态文件（HTML 页面）
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 	log.Println("Server started")
@@ -374,15 +383,9 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 
 	userMessage := req.Message
-
-	// marketCtx := ""
-	// newsCtx := ""
 	memoryContent := req.Memory
 	extraCtx := req.Context
-
 	if req.Symbol != "" {
-		//marketCtx = tools.GetMarketDataMock(req.Symbol)
-		//newsCtx = tools.GetNewsMock(req.Symbol, 5)
 		if memoryContent == "" {
 			memoryContent = memory.FormatMemoryWithLastReport(req.Symbol)
 			if memoryContent == "" {
@@ -422,80 +425,33 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		um = matchText
 	}
 
-	// knowledge.json RAG：可选（config intent.knowledgeRagEnabled / STOCK_INTENT_KB_RAG）；关闭时意图仅走 FC，不查 Redis 知识索引。
-	var kbHits []kb.Hit
-	var kbBlock string
-	if tools.IntentKnowledgeRAGEnabled() {
-		var kbQuery strings.Builder
-		kbQuery.WriteString(um)
-		if h := strings.TrimSpace(req.SessionHistory); h != "" {
-			if len(h) > 1500 {
-				h = h[:1500] + "…"
-			}
-			kbQuery.WriteString("\n")
-			kbQuery.WriteString(h)
-		}
-		const kbTopK = 6
-		var kbSearchErr error
-		kbHits, kbSearchErr = kb.DefaultKnowledgeIndex().Search(r.Context(), kbQuery.String(), kbTopK)
-		if kbSearchErr != nil {
-			log.Printf("[kb-rag] 检索跳过: %v", kbSearchErr)
-		}
-		kbBlock = kb.FormatRAGBlock(kbHits)
-	}
-	// if kbBlock != "" {
-	// 	section := "## 知识库 RAG 检索\n\n" + kbBlock
-	// 	if extraCtx != "" {
-	// 		extraCtx = section + "\n\n" + extraCtx
-	// 	} else {
-	// 		extraCtx = section
-	// 	}
-	// }
-	//log.Println("kbHits", kbHits)
-	// log.Println("kbBlock", kbBlock)
-	//log.Println("extraCtx", extraCtx)
-
-	// RAG 已命中 intent:* 文档并推出 skill_hints 时，不再调用意图 FC，避免重复推理与延迟。
-	ragSkillHints := kb.SkillHintsFromHits(kbHits)
-	log.Println("ragSkillHints", ragSkillHints, len(ragSkillHints))
+	// 查询改写：知识库槽位 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
+	aug := queryaug.Build(r.Context(), um, req.SessionHistory, req.Symbol)
+	nlRW := combo.NLQueryRewrite(um, aug.Slots)
+	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
+	fmt.Println("skipFC", skipFC)
 	var parsed *intent.ParsedIntent
-	if len(ragSkillHints) > 0 {
-		parsed = &intent.ParsedIntent{
-			TaskKind:   intent.TaskGeneral,
-			SkillHints: ragSkillHints,
-			Source:     "rag_kb",
-		}
-		if c := kb.TopStockCodeFromHits(kbHits); c != "" {
-			parsed.Symbols = intent.NormalizeSymbols([]string{c})
-		}
-		intent.MergeExplicitSymbol(parsed, req.Symbol)
-		intent.ValidateAndPatch(parsed, um)
+	if skipFC {
+		parsed = aug.ParsedCombo
 	} else {
+		umForIntent := intent.MergeRewrittenAndOriginal(um, nlRW)
 		parsed = intent.Parse(r.Context(), parseModel, intent.ParseInput{
-			UserMessage:    um,
+			UserMessage:    umForIntent,
 			SessionHistory: req.SessionHistory,
 			ExplicitSymbol: req.Symbol,
-			KBContext:      kbBlock,
+			KBContext:      aug.Block,
 		})
-		if parsed != nil && len(parsed.Symbols) == 0 {
-			if c := kb.TopStockCodeFromHits(kbHits); c != "" {
+	}
+
+	if parsed != nil && len(parsed.Symbols) == 0 {
+		if aug.Slots.SymbolCode != "" {
+			parsed.Symbols = intent.NormalizeSymbols([]string{aug.Slots.SymbolCode})
+		}
+		if len(parsed.Symbols) == 0 {
+			if c := kb.TopStockCodeFromHits(aug.Hits); c != "" {
 				parsed.Symbols = intent.NormalizeSymbols([]string{c})
 			}
 		}
-	}
-	// 轻量问句：约束回复形态，避免预取块较少时模型仍写长篇「综合研判」
-	// if parsed != nil && parsed.TaskKind != intent.TaskDeepAnalysis {
-	// 	brief := "## 本轮为轻量行情/现价类意图，请直接、简短回答（数句即可），不要套用多维「综合研判报告」体例，除非用户明确要求深度分析。\n\n"
-	// 	if extraCtx != "" {
-	// 		extraCtx = brief + extraCtx
-	// 	} else {
-	// 		extraCtx = brief
-	// 	}
-	// }
-	if parsed != nil {
-		fmt.Println("parsed", parsed.Source, parsed.TaskKind, parsed.SkillHints)
-	} else {
-		fmt.Println("parsed", nil)
 	}
 
 	sym := strings.TrimSpace(req.Symbol)
@@ -503,13 +459,20 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		sym = parsed.Symbols[0]
 	}
 	if sym == "" {
-		sym = kb.TopStockCodeFromHits(kbHits)
+		sym = kb.TopStockCodeFromHits(aug.Hits)
 	}
-	var skillHints []string
+	var hints []string
 	if parsed != nil {
-		skillHints = parsed.SkillHints
+		hints = parsed.SkillHints
 	}
-	if block := tools.RunSkillHintsTools(r.Context(), sym, um, skillHints); block != "" {
+	prefetchSyms := []string{}
+	if parsed != nil {
+		prefetchSyms = append(prefetchSyms, parsed.Symbols...)
+	}
+	if len(prefetchSyms) == 0 && sym != "" {
+		prefetchSyms = []string{sym}
+	}
+	if block := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints); block != "" {
 		if extraCtx != "" {
 			extraCtx += "\n\n"
 		}
@@ -533,7 +496,9 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		Skills:         "",
 		Extra:          extraCtx,
 	})
-	messages := []*schema.Message{schema.UserMessage(userMessage)}
+	fmt.Println("userMessage", userMessage)
+	fmt.Println("nlRW", nlRW)
+	messages := []*schema.Message{schema.UserMessage(nlRW)}
 	iterator := runner.Run(r.Context(), messages, adk.WithSessionValues(map[string]any{
 		"Context": contextBlock,
 	}))

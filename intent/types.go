@@ -40,6 +40,6 @@ type ParseInput struct {
 	UserMessage    string
 	SessionHistory string
 	ExplicitSymbol string // HTTP 请求里携带的 symbol，合并进槽位
-	// KBContext 来自 knowledge.json 的 RAG 检索摘要，置于用户内容之前供 FC 参考。
+	// KBContext 知识库查询改写统一块：词典结构化 + 向量片段 + Few-shot（见 intent/queryaug）。
 	KBContext string
 }
