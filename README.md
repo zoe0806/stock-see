@@ -17,23 +17,16 @@
 - 用户：「茅台怎么样？」→ 解析标的 `600519` 并分析  
 - 用户：「它的基本面呢？」→ 在无新股票名时沿用 **上一轮标的**
 
-实现方式（无需前端传整段 Memory）：
 
-- 请求体可选 **`symbol`**（六位代码）与 **`session_id`**（同一会话固定 ID）  
-- 后端 **`tools` 包内会话缓存**（`session_id` → 最近标的，内存 TTL 24h）  
-- 演示页 `static/index.html` 用 `sessionStorage` 记住 `session_id` 与 `last_symbol`，输入框为空时自动带上轮代码  
-
-记忆正文仍由服务端按标的从 `memory/stock/<symbol>/` 读取，不必由前端上传。
 
 ### 智能新闻检索（RAG）
 
 - 混合检索：向量召回 + BM25（Redis Stack `FT.SEARCH`）  
 - RRF 融合 + 规则重排（标题、时效、来源等）  
-- 定时任务可按 `cron_stocks` 订阅列表同步新闻入 Redis  
 
 ### AI 报告生成
 
-- **Eino ADK** `ChatModelAgent` + 工具：`run_technical` / `run_fundamental` / `run_news` 等（经 `STOCK_PYTHON_URL` 调用 Python 服务）  
+- **Eino ADK** `ChatModelAgent` + 工具：`run_technical` / `run_fundamental` / `run_news` 等
 - 意图命中 `skill_hints` 时可 **预取** 部分维度数据注入上下文；基本面长报告避免与对话内重复展示（预取与用户消息拆分策略见 `tools/skill_hints_run.go`）  
 - `/chat` 以 **SSE** 流式返回 Markdown 报告  
 
@@ -61,7 +54,6 @@
 | 意图 | 内存倒排 + `submit_parsed_intent` FC；可选 `config/intent_rules.json` |
 | 检索 | Redis Stack + Embedding（`rag` 包） |
 | 分析数据 | Python HTTP 服务（`stockPython.baseURL`） |
-| 会话标的 | 内存 `session_id` 缓存 + 请求 `symbol` |
 
 ## 📦 快速开始
 
@@ -77,9 +69,8 @@
 ```bash
 git clone https://github.com/zoe0806/stock-see.git
 cd stock-see
-cp config/stock.example.json config/stock.json   # 若尚无 stock.json
 # 编辑 config/stock.json：chatOpenAI、rag.redisAddr、stockPython.baseURL 等
-# 也可通过环境变量 STOCK_CONFIG 指定配置文件路径
+
 ```
 
 ### 启动服务
@@ -96,45 +87,8 @@ go run .
 | `/` | 对话演示页（`static/index.html`） |
 | `POST /chat` | SSE 流式对话（`message`、`symbol`、`session_id` 等） |
 | `/rag` | RAG 检索演示 |
-| `/api/rag/search`、`/api/rag/sync` | 新闻检索与同步 |
-| `/api/breakout_score` | 突破评分接口 |
 
-### 交互示例（API）
 
-```json
-POST /chat
-{
-  "message": "它的基本面呢",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "symbol": "600519"
-}
-```
-
-`symbol` 可省略：若带 `session_id` 且上一轮已解析出标的，后端会自动沿用。
-
-## 🎯 使用示例
-
-### 1. 单实体查询
-
-输入：贵州茅台最新财报净利润  
-
-解析结果示例（概念上）：`task_kind: fundamental`，`symbols: ["600519"]`，`skill_hints` 含 `fundamental`。
-
-### 2. 多标的对比
-
-输入：对比德方纳米与信维通信业绩  
-
-`task_kind: compare`，`symbols` 为两只股票代码；预取可拉多标的维度数据。
-
-### 3. 多轮指代
-
-```
-User: 宁德时代
-Assistant: …（解析 300750，并写入 session 缓存）
-
-User: 它的技术面怎么样？
-Assistant: …（无新代码时沿用 300750 + NL 改写补全标的）
-```
 
 ## 🧪 评测与优化
 
@@ -163,7 +117,7 @@ go run . -eval -eval-suite=data/eval/suite.json
 ├── prompt/                 # 系统提示与 {Context} 组装
 ├── eval/                   # Prompt 离线评测
 ├── evalintent/             # 意图评测预测器（fc / combo / pipeline）
-├── memory/                 # 按标的落盘记忆（若已接入）
+├── memory/                 # 按标的落盘记忆
 ├── config/                 # stock.json、intent_rules.json、prompt 模板
 ├── data/                   # knowledge.json、intent_fewshot.json、eval 用例
 ├── static/                 # index.html、rag.html 等演示页
