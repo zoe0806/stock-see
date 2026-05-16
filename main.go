@@ -372,6 +372,7 @@ func handleRAGSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	var results []rag.SearchResult
 	if q != "" {
+		fmt.Println("q", q)
 		results, err = client.SearchByQuery(r.Context(), q, code, from, to, limit)
 	} else {
 		results, err = client.Search(r.Context(), code, from, to, limit)
