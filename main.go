@@ -8,13 +8,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"stock-see/eval"
 	"stock-see/evalintent"
 	"stock-see/intent"
 	"stock-see/intent/easyrules"
-	"stock-see/prompt"
 	"stock-see/rag"
 	"stock-see/router"
 	"stock-see/tools"
@@ -24,15 +26,6 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai" //openai模型
 	"github.com/cloudwego/eino/compose"
 )
-
-// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json。
-func loadMatchedSkillPaths(skillsRoot, matchText string) []string {
-	list, err := prompt.LoadSkillsFromDir(skillsRoot)
-	if err != nil {
-		return nil
-	}
-	return prompt.MatchSkillsForRequest(list, matchText)
-}
 
 func main() {
 	evalFlag := flag.Bool("eval", false, "运行离线评测集（读取 -eval-suite 或 config.eval.defaultSuitePath），打印均分后退出")
@@ -49,7 +42,27 @@ func main() {
 	evalRetrievalVerbose := flag.Bool("eval-retrieval-verbose", false, "检索评测输出逐条 Top 标题与是否命中")
 	flag.Parse()
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	chatCfg := tools.GetChatOpenAIConfig()
+	if chatCfg == nil || chatCfg.Model == "" || chatCfg.APIKey == "" {
+		panic(fmt.Errorf("请在 config/stock.json 或 config/stock.example.json 中配置 chatOpenAI（model、apiKey、baseURL）"))
+	}
+	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		BaseURL: chatCfg.BaseURL,
+		Model:   chatCfg.Model,
+		APIKey:  chatCfg.APIKey,
+	})
+	if err != nil {
+		panic(fmt.Errorf("初始化模型失败: %v", err))
+	}
+
+	sysTpl, promptVer, err := tools.GetResolvedPrompt()
+	if err != nil {
+		panic(fmt.Errorf("解析 prompt 配置失败: %v", err))
+	}
+	log.Printf("prompt 当前版本: %s", promptVer)
 
 	if *evalRetrievalFlag {
 		suitePath := strings.TrimSpace(*evalRetrievalSuite)
@@ -79,25 +92,6 @@ func main() {
 		}
 		os.Exit(0)
 	}
-
-	chatCfg := tools.GetChatOpenAIConfig()
-	if chatCfg == nil || chatCfg.Model == "" || chatCfg.APIKey == "" {
-		log.Fatalf("请在 config/stock.json 或 config/stock.example.json 中配置 chatOpenAI（model、apiKey、baseURL）")
-	}
-	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		BaseURL: chatCfg.BaseURL,
-		Model:   chatCfg.Model,
-		APIKey:  chatCfg.APIKey,
-	})
-	if err != nil {
-		log.Fatalf("初始化模型失败: %v", err)
-	}
-
-	sysTpl, promptVer, err := tools.GetResolvedPrompt()
-	if err != nil {
-		log.Fatalf("解析 prompt 配置失败: %v", err)
-	}
-	log.Printf("prompt 当前版本: %s", promptVer)
 
 	if *evalFlag {
 		suitePath := strings.TrimSpace(*evalSuite)
@@ -193,7 +187,7 @@ func main() {
 
 	agent, err := adk.NewChatModelAgent(ctx, agentConfig)
 	if err != nil {
-		log.Fatalf("创建 ChatModelAgent 失败: %v", err)
+		panic(fmt.Errorf("创建 ChatModelAgent 失败: %v", err))
 	}
 
 	// Runner 用于注入会话上下文（SessionValues），使 Instruction 中的 {Context} 等占位符生效
@@ -203,7 +197,7 @@ func main() {
 	})
 
 	mux := router.InitRouter(runner, chatModel)
-
+	srv := &http.Server{Addr: ":8080", Handler: mux}
 	// 定时任务：每小时拉取新闻写入 RAG（Redis 未配置时自动跳过）
 	go router.RunRAGTicker()
 
@@ -213,6 +207,14 @@ func main() {
 		}
 	}
 
-	log.Println("Server started")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Println("Server started on port 8080")
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			panic(fmt.Errorf("listen and serve: %v", err))
+		}
+	}()
+	<-ctx.Done()
+	shutdownCtx, c2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer c2()
+	_ = srv.Shutdown(shutdownCtx)
 }
