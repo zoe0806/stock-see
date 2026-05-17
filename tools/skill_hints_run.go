@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"os"
 	"strings"
 	"sync"
 )
-
-const disableSkillHintToolsEnv = "STOCK_SKILL_HINT_TOOLS_DISABLE"
 
 // SkillPrefetchResult 技能预取拆分结果：基本面全文只应出现一次，避免同时塞进 System Context（Extra）
 // 与用户可见对话重复两遍。
@@ -24,10 +21,7 @@ type SkillPrefetchResult struct {
 // 基本面完整报告放在 FundamentalForUser，请勿再将全文写入 ContextMarkdown，以免与对话重复展示。
 func RunSkillHintsTools(ctx context.Context, symbols []string, userMessage string, hints []string) SkillPrefetchResult {
 	out := SkillPrefetchResult{}
-	if strings.TrimSpace(os.Getenv(disableSkillHintToolsEnv)) == "1" {
-		return out
-	}
-	if len(hints) == 0 {
+	if len(hints) == 0 || len(symbols) == 0 {
 		return out
 	}
 	includeReports := strings.Contains(userMessage, "财报")
@@ -39,11 +33,8 @@ func RunSkillHintsTools(ctx context.Context, symbols []string, userMessage strin
 	syms := normalizePrefetchSymbols(symbols)
 	perSym, global := partitionSkillHints(ordered)
 
-	if len(syms) <= 1 {
-		sym := ""
-		if len(syms) == 1 {
-			sym = syms[0]
-		}
+	if len(syms) == 1 {
+		sym := syms[0]
 		ctxMD, fund := runSkillHintsOrderedSplit(ctx, sym, includeReports, ordered)
 		out.ContextMarkdown = strings.TrimSpace(ctxMD)
 		out.FundamentalForUser = strings.TrimSpace(fund)

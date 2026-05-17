@@ -10,7 +10,7 @@ import (
 // 偏基本面的财务指标字段（与技术面指标冲突消解时用）。
 var fundamentalMetricFields = map[string]struct{}{
 	"performance_brief": {},
-	"revenue": {}, "net_profit": {}, "deducted_net_profit": {}, "gross_margin": {}, "net_margin": {},
+	"revenue":           {}, "net_profit": {}, "deducted_net_profit": {}, "gross_margin": {}, "net_margin": {},
 	"eps": {}, "eps_basic": {}, "eps_diluted": {}, "roe": {}, "pe_ttm": {}, "pe_dynamic": {}, "pb": {},
 	"debt_to_assets": {}, "current_ratio": {}, "quick_ratio": {}, "operating_cashflow": {},
 	"free_cashflow": {}, "dividend_yield": {}, "market_cap": {}, "float_market_cap": {},
@@ -233,6 +233,7 @@ func ShouldSkipFC(p *intent.ParsedIntent, slots RawSlots) bool {
 	if p == nil {
 		return false
 	}
+
 	if comboConfidence(slots) < 0.55 {
 		return false
 	}

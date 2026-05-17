@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // KnowledgeFile 与 data/knowledge.json 结构一致。
@@ -74,4 +75,65 @@ func KnowledgeFileSHA256Hex(path string) (string, error) {
 	}
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
+}
+
+var (
+	stockNameIndexOnce sync.Once
+	stockNameToCode    map[string]string
+)
+
+func buildStockNameIndex() {
+	stockNameToCode = make(map[string]string)
+	kf, err := LoadKnowledgeFile("")
+	if err != nil {
+		return
+	}
+	for _, s := range kf.Stocks {
+		code := strings.TrimSpace(s.Code)
+		if len(code) != 6 {
+			continue
+		}
+		add := func(phrase string) {
+			phrase = strings.TrimSpace(phrase)
+			if phrase == "" {
+				return
+			}
+			if _, ok := stockNameToCode[phrase]; !ok {
+				stockNameToCode[phrase] = code
+			}
+		}
+		add(s.Name)
+		for _, a := range s.Aliases {
+			add(a)
+		}
+	}
+}
+
+// LookupStockCodeByName 在 knowledge.json 中按名称或别名查六位代码；未命中返回空。
+func LookupStockCodeByName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	stockNameIndexOnce.Do(buildStockNameIndex)
+	if stockNameToCode == nil {
+		return ""
+	}
+	return stockNameToCode[name]
+}
+
+// LookupStockCodesFromNames 将中文简称列表解析为代码（去重）。
+func LookupStockCodesFromNames(names []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, n := range names {
+		if c := LookupStockCodeByName(n); c != "" {
+			if _, ok := seen[c]; ok {
+				continue
+			}
+			seen[c] = struct{}{}
+			out = append(out, c)
+		}
+	}
+	return out
 }

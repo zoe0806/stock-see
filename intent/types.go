@@ -21,14 +21,16 @@ const (
 
 // ParsedIntent 模型解析后的结构化意图（经校验、规范化）。
 type ParsedIntent struct {
-	TaskKind       TaskKind `json:"task_kind"`
-	Symbols        []string `json:"symbols"`                // 6 位 A 股代码，可多标
-	SymbolNames    []string `json:"symbol_names,omitempty"` // 中文简称，辅助检索
-	TimeHint       string   `json:"time_hint,omitempty"`    // 如：近三年、2023年
-	CompareAxis    string   `json:"compare_axis,omitempty"` // pe/pb/price/revenue/profit/roe/general
-	SkillHints    []string `json:"skill_hints,omitempty"` // 技能目录名：technical、news 等
+	TaskKind      TaskKind `json:"task_kind"`
+	Symbols       []string `json:"symbols"`                  // 6 位 A 股代码，可多标
+	SymbolNames   []string `json:"symbol_names,omitempty"`   // 中文简称，辅助检索
+	TimeHint      string   `json:"time_hint,omitempty"`      // 如：近三年、2023年
+	CompareAxis   string   `json:"compare_axis,omitempty"`   // pe/pb/price/revenue/profit/roe/general
+	SkillHints    []string `json:"skill_hints,omitempty"`    // 技能目录名：technical、news 等
 	ClarifyPrompt string   `json:"clarify_prompt,omitempty"` // 建议追问用户的简短话术
-	Confidence     float64  `json:"confidence,omitempty"`
+	// NLRewritten 意图 FC 产出的规范用户问句（含标的+任务维度）；非空时主对话优先使用，不再用词典 NLQueryRewrite 覆盖。
+	NLRewritten string  `json:"nl_rewritten,omitempty"`
+	Confidence  float64 `json:"confidence,omitempty"`
 
 	// Source 取值：llm_tool / keyword_fallback / merge_explicit
 	Source string `json:"-"`
@@ -42,4 +44,6 @@ type ParseInput struct {
 	ExplicitSymbol string // HTTP 请求里携带的 symbol，合并进槽位
 	// KBContext 知识库查询改写统一块：词典结构化 + 向量片段 + Few-shot（见 intent/queryaug）。
 	KBContext string
+	// PendingFollowUp 会话待续意图说明（澄清后用户补股票名）。
+	PendingFollowUp string
 }

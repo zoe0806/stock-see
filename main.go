@@ -24,7 +24,6 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/cloudwego/eino-ext/components/model/openai" //openai模型
-	"github.com/cloudwego/eino/compose"
 )
 
 func main() {
@@ -56,6 +55,12 @@ func main() {
 	})
 	if err != nil {
 		panic(fmt.Errorf("初始化模型失败: %v", err))
+	}
+
+	if tools.IntentEasyRulesEnabled() {
+		if err := easyrules.Load(tools.IntentRulesFilePath()); err != nil {
+			panic(fmt.Errorf("[easyrules] 初始加载失败（仅槽位组合生效）: %v", err))
+		}
 	}
 
 	sysTpl, promptVer, err := tools.GetResolvedPrompt()
@@ -179,11 +184,12 @@ func main() {
 		Instruction: sysTpl,
 		Model:       chatModel,
 	}
-	agentConfig.ToolsConfig = adk.ToolsConfig{
-		ToolsNodeConfig: compose.ToolsNodeConfig{
-			Tools: tools.StockTools(),
-		},
-	}
+	//关闭工具调用，由skill hints全面接管
+	// agentConfig.ToolsConfig = adk.ToolsConfig{
+	// 	ToolsNodeConfig: compose.ToolsNodeConfig{
+	// 		Tools: tools.StockTools(),
+	// 	},
+	// }
 
 	agent, err := adk.NewChatModelAgent(ctx, agentConfig)
 	if err != nil {
@@ -198,13 +204,6 @@ func main() {
 
 	mux := router.InitRouter(runner, chatModel)
 	srv := &http.Server{Addr: ":8080", Handler: mux}
-
-	if tools.IntentEasyRulesEnabled() {
-		if err := easyrules.Load(tools.IntentRulesFilePath()); err != nil {
-			log.Printf("[easyrules] 初始加载失败（仅槽位组合生效）: %v", err)
-		}
-	}
-
 	log.Println("Server started on port 8080")
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

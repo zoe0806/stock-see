@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"stock-see/tools"
 )
 
 var reSixDigits = regexp.MustCompile(`\b(\d{6})\b`)
@@ -40,7 +42,7 @@ func NormalizeSymbols(in []string) []string {
 	var out []string
 	for _, s := range in {
 		s = strings.TrimSpace(s)
-		if len(s) == 6 && digitsOnly(s) {
+		if len(s) == 6 && DigitsOnly(s) {
 			if _, ok := seen[s]; ok {
 				continue
 			}
@@ -52,7 +54,7 @@ func NormalizeSymbols(in []string) []string {
 	return out
 }
 
-func digitsOnly(s string) bool {
+func DigitsOnly(s string) bool {
 	for _, r := range s {
 		if r < '0' || r > '9' {
 			return false
@@ -83,6 +85,15 @@ func ValidateAndPatch(p *ParsedIntent, userMessage string) {
 	p.Symbols = NormalizeSymbols(p.Symbols)
 	if len(p.Symbols) == 0 {
 		p.Symbols = ExtractSymbolsFromText(userMessage)
+	}
+	if len(p.Symbols) == 0 && len(p.SymbolNames) > 0 {
+		p.Symbols = NormalizeSymbols(tools.LookupStockCodesFromNames(p.SymbolNames))
+	}
+	// 模型常把代码写在 nl_rewritten（如「三花智控（002050）」）却漏填 symbols
+	if len(p.Symbols) == 0 {
+		if rw := strings.TrimSpace(p.NLRewritten); rw != "" {
+			p.Symbols = ExtractSymbolsFromText(rw)
+		}
 	}
 	// 对比类至少两个代码或依赖名称（名称留给上层模型）
 	if p.TaskKind == TaskCompare && len(p.Symbols) < 2 && len(p.SymbolNames) < 2 {
@@ -157,7 +168,7 @@ func MergeExplicitSymbol(p *ParsedIntent, explicit string) {
 	if explicit == "" || p == nil {
 		return
 	}
-	if len(explicit) == 6 && digitsOnly(explicit) {
+	if len(explicit) == 6 && DigitsOnly(explicit) {
 		p.Symbols = NormalizeSymbols(append([]string{explicit}, p.Symbols...))
 		p.Source = "merge_explicit"
 	}

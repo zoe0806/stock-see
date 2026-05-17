@@ -117,7 +117,7 @@ func humanizeTimeParsedCN(parsed string) string {
 func metricFieldLabelsCN(fields []string) []string {
 	lab := map[string]string{
 		"performance_brief": "业绩",
-		"revenue": "营业收入", "net_profit": "归母净利润", "deducted_net_profit": "扣非净利润",
+		"revenue":           "营业收入", "net_profit": "归母净利润", "deducted_net_profit": "扣非净利润",
 		"gross_margin": "毛利率", "net_margin": "净利率", "eps": "每股收益", "eps_basic": "基本每股收益",
 		"eps_diluted": "稀释每股收益", "roe": "净资产收益率", "pe_ttm": "市盈率（TTM）", "pe_dynamic": "动态市盈率",
 		"pb": "市净率", "debt_to_assets": "资产负债率", "current_ratio": "流动比率", "quick_ratio": "速动比率",

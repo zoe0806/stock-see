@@ -44,6 +44,9 @@ func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol stri
 
 	t0 := time.Now()
 	out.Slots = combo.MatchSlots(um)
+	if explicitSymbol != "" {
+		out.Slots.SymbolCode = explicitSymbol
+	}
 	out.SlotMatchMs = time.Since(t0).Milliseconds()
 
 	t1 := time.Now()

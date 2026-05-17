@@ -47,6 +47,8 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	effectiveSym := strings.TrimSpace(req.Symbol)
 	if effectiveSym == "" {
 		effectiveSym = tools.Get(strings.TrimSpace(req.SessionID))
+		fmt.Println("effectiveSym", effectiveSym)
+		fmt.Println("req.SessionID", req.SessionID)
 	}
 
 	if effectiveSym != "" {
@@ -76,24 +78,20 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		return
 	}
 
-	matchText := strings.TrimSpace(req.Message)
+	um := strings.TrimSpace(req.Message)
 	if u := strings.TrimSpace(userMessage); u != "" {
-		if matchText == "" {
-			matchText = u
-		} else if u != matchText {
-			matchText = matchText + "\n" + u
+		if um == "" {
+			um = u
+		} else if u != um {
+			um = um + "\n" + u
 		}
-	}
-	um := strings.TrimSpace(userMessage)
-	if um == "" {
-		um = matchText
 	}
 
 	// 查询改写：知识库槽位&规则引擎 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
 	aug := queryaug.Build(r.Context(), um, req.SessionHistory, effectiveSym)
-	nlRW := combo.NLQueryRewrite(um, aug.Slots, effectiveSym)
-	log.Println("nlRW", nlRW)
+	comboRW := combo.NLQueryRewrite(um, aug.Slots, effectiveSym)
 	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
+	fmt.Println("skipFC", skipFC, aug.ParsedCombo, combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots))
 
 	//pipelineTiming 管道时间统计
 	pt := tools.PipelineTiming{
@@ -104,19 +102,26 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 	var tokenAcc *schema.TokenUsage //token用量统计
 
+	sid := strings.TrimSpace(req.SessionID)
+	pendingIntent := tools.GetPendingIntent(sid)
+
 	var parsed *intent.ParsedIntent
 	if skipFC {
 		parsed = aug.ParsedCombo
 	} else {
 		tFC := time.Now()
 		var u *schema.TokenUsage
-		umForIntent := intent.MergeRewrittenAndOriginal(um, nlRW)
-		//意图解析
+		pendingCtx := ""
+		if pendingIntent != nil {
+			pendingCtx = intent.FormatPendingForParse(pendingIntent)
+		}
+		// 意图 FC 自行产出 nl_rewritten；此处不预拼词典改写，避免覆盖多轮语义
 		parsed, u = intent.ParseWithUsage(r.Context(), parseModel, intent.ParseInput{
-			UserMessage:    umForIntent,
-			SessionHistory: req.SessionHistory,
-			ExplicitSymbol: effectiveSym,
-			KBContext:      aug.Block,
+			UserMessage:     um,
+			SessionHistory:  req.SessionHistory,
+			ExplicitSymbol:  effectiveSym,
+			KBContext:       aug.Block,
+			PendingFollowUp: pendingCtx,
 		})
 		tokenAcc = tools.MergeTokenUsage(tokenAcc, u)
 		pt.IntentFCMs = time.Since(tFC).Milliseconds()
@@ -126,7 +131,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		if aug.Slots.SymbolCode != "" {
 			parsed.Symbols = intent.NormalizeSymbols([]string{aug.Slots.SymbolCode})
 		}
-
 	}
 
 	sym := effectiveSym
@@ -134,7 +138,20 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		sym = parsed.Symbols[0]
 	}
 
-	if sid := strings.TrimSpace(req.SessionID); sid != "" && sym != "" {
+	// 澄清后只补股票名：继承上一轮 fundamental 等，避免 combo 判成 quick_look
+	intent.ApplySessionFollowUp(um, parsed, pendingIntent)
+
+	nlRW := ""
+	if intent.FCUsedNLRewrite(parsed) {
+		nlRW = intent.EffectiveNLRewrite(um, comboRW, parsed)
+	} else {
+		nlRW = comboRW
+	}
+	if strings.TrimSpace(nlRW) == "" && parsed != nil && strings.TrimSpace(parsed.NLRewritten) != "" {
+		nlRW = strings.TrimSpace(parsed.NLRewritten)
+	}
+
+	if sid != "" && sym != "" {
 		if ns := intent.NormalizeSymbols([]string{sym}); len(ns) > 0 {
 			tools.Put(sid, ns[0])
 		}
@@ -150,7 +167,25 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	if len(prefetchSyms) == 0 && sym != "" {
 		prefetchSyms = []string{sym}
 	}
-	log.Println("parsed", parsed.SkillHints, parsed.Symbols, prefetchSyms)
+	log.Println("parsed：", parsed.SkillHints, ",Symbols:", parsed.Symbols, prefetchSyms)
+
+	// need_clarify 或者没有标的：直接返回追问，并保存待续意图供下轮「只报名字」时接续
+	if intent.ShouldStopForClarify(parsed, sym) {
+		intent.SavePendingOnClarify(sid, um, parsed)
+		reply := intent.ClarifyReplyText(parsed)
+		log.Printf("[chat] need_clarify early return: %q", reply)
+		writeSSEData("message", reply)
+		pt.PrefetchMs = 0
+		pt.ContextMs = 0
+		pt.GenerateMs = 0
+		tools.LogPipeline("[chat]", skipFC, pt, tokenAcc)
+		writeSSEData("metrics", tools.MetricsJSON(skipFC, pt, tokenAcc))
+		flusher.Flush()
+		fmt.Fprintf(w, "event: done\ndata: \n\n")
+		flusher.Flush()
+		return
+	}
+
 	tPrefetch := time.Now()
 	pref := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints)
 	if strings.TrimSpace(pref.ContextMarkdown) != "" {
@@ -245,6 +280,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		if ns := intent.NormalizeSymbols([]string{sym}); len(ns) > 0 {
 			_ = memory.WriteStockMemory(ns[0], "", fullReply.String())
 		}
+		tools.ClearPendingIntent(sid)
 	}
 	fmt.Fprintf(w, "event: done\ndata: \n\n")
 	flusher.Flush()

@@ -82,6 +82,7 @@ func ParseWithUsage(ctx context.Context, cm ParseModel, in ParseInput) (*ParsedI
 		CompareAxis   string   `json:"compare_axis"`
 		SkillHints    []string `json:"skill_hints"`
 		ClarifyPrompt string   `json:"clarify_prompt"`
+		NLRewritten   string   `json:"nl_rewritten"`
 		Confidence    float64  `json:"confidence"`
 	}
 	if err := sonic.UnmarshalString(args, &raw); err != nil {
@@ -96,6 +97,7 @@ func ParseWithUsage(ctx context.Context, cm ParseModel, in ParseInput) (*ParsedI
 		CompareAxis:   strings.TrimSpace(raw.CompareAxis),
 		SkillHints:    raw.SkillHints,
 		ClarifyPrompt: strings.TrimSpace(raw.ClarifyPrompt),
+		NLRewritten:   strings.TrimSpace(raw.NLRewritten),
 		Confidence:    raw.Confidence,
 		Source:        "llm_tool",
 	}
@@ -120,6 +122,9 @@ func buildUserContent(in ParseInput) string {
 	}
 	if s := strings.TrimSpace(in.ExplicitSymbol); s != "" {
 		parts = append(parts, "【客户端已选标的代码】\n"+s)
+	}
+	if p := strings.TrimSpace(in.PendingFollowUp); p != "" {
+		parts = append(parts, "【待续上一轮意图】\n"+p)
 	}
 	return strings.Join(parts, "\n\n")
 }

@@ -73,6 +73,10 @@ func SubmitParsedIntentToolInfo(desc string) *schema.ToolInfo {
 				Type: schema.String,
 				Desc: "task_kind 为 need_clarify 时给用户的追问",
 			},
+			"nl_rewritten": {
+				Type: schema.String,
+				Desc: "规范后的完整用户问句（必填，除 need_clarify/off_topic 外）：须写清标的（名称+代码若已知）、任务与维度，如「查询光迅科技（002281）最新行情」。多轮时合并会话意图：上轮问「它的行情」、本轮仅答「光迅科技」时应写成「查询光迅科技最新行情」而非仅股票名。quick_look 须体现行情/现价；fundamental 体现基本面；勿写成全面深度分析除非 task_kind=deep_analysis。",
+			},
 			"confidence": {
 				Type: schema.Number,
 				Desc: "0~1 置信度",
