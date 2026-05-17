@@ -263,3 +263,12 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	fmt.Fprintf(w, "event: done\ndata: \n\n")
 	flusher.Flush()
 }
+
+// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json。
+func loadMatchedSkillPaths(skillsRoot, matchText string) []string {
+	list, err := prompt.LoadSkillsFromDir(skillsRoot)
+	if err != nil {
+		return nil
+	}
+	return prompt.MatchSkillsForRequest(list, matchText)
+}
