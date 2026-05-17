@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"stock-see/cronstock"
+	"stock-see/prompt"
 	"stock-see/rag"
 	"stock-see/tools"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 // RunRAGTicker 每小时执行一次：从 cron_stocks 取订阅列表，拉取新闻并写入 Redis（RAG）。
 // 若 RAG_REDIS_ADDR 未配置或 Redis 不可用，则静默跳过。
+// 定时任务：每小时拉取新闻写入 RAG（Redis 未配置时自动跳过） 在启动时执行  go router.RunRAGTicker()
 func RunRAGTicker() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -112,4 +114,23 @@ func handleRAGSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	replyJSON(w, map[string]interface{}{"ok": true, "synced_symbols": symbols})
+}
+
+// 根据意图加载对应skills文档，构建上下文  替换 pref := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints)
+// matchText = intent.EnrichMatchText(matchText, parsed)
+//
+//	if parsed != nil {
+//		log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
+//	}
+//
+// skillsRoot := filepath.Join(".", "skills")
+// skillPaths := loadMatchedSkillPaths(skillsRoot, matchText)
+// skillsContent := prompt.LoadSkillsContent(skillPaths)
+// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json。
+func loadMatchedSkillPaths(skillsRoot, matchText string) []string {
+	list, err := prompt.LoadSkillsFromDir(skillsRoot)
+	if err != nil {
+		return nil
+	}
+	return prompt.MatchSkillsForRequest(list, matchText)
 }

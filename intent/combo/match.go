@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"stock-see/kb"
+	"stock-see/tools"
 )
 
 // MatchedStock 问句中命中的一只标的（按出现顺序）。
@@ -17,14 +17,14 @@ type MatchedStock struct {
 
 // RawSlots 单次匹配的原始槽位（未做冲突消解）。
 type RawSlots struct {
-	SymbolCode   string // 首只标的（兼容旧逻辑）
-	SymbolName   string
+	SymbolCode string // 首只标的（兼容旧逻辑）
+	SymbolName string
 	// MatchedStocks 问句中所有命中标的，按「首次出现位置」排序，用于「对比 A 与 B」等多标的。
 	MatchedStocks []MatchedStock
-	IntentScores map[string]int // intent key -> 命中关键词次数
-	MetricFields []string       // 结构化字段名，如 revenue、net_profit
-	TimeParsed   string         // 与 knowledge.json time_phrases.parsed 对齐，如 last_3_years
-	TimeRange    string         // time_phrases.range
+	IntentScores  map[string]int // intent key -> 命中关键词次数
+	MetricFields  []string       // 结构化字段名，如 revenue、net_profit
+	TimeParsed    string         // 与 knowledge.json time_phrases.parsed 对齐，如 last_3_years
+	TimeRange     string         // time_phrases.range
 }
 
 var (
@@ -63,7 +63,7 @@ type timeHit struct {
 
 func defaultIndex() *index {
 	idxOnce.Do(func() {
-		kf, err := kb.LoadKnowledgeFile("")
+		kf, err := tools.LoadKnowledgeFile("")
 		if err != nil {
 			idxErr = err
 			return
@@ -76,7 +76,7 @@ func defaultIndex() *index {
 	return idx
 }
 
-func buildIndex(k *kb.KnowledgeFile) *index {
+func buildIndex(k *tools.KnowledgeFile) *index {
 	x := &index{
 		intentTerm: make(map[string][]string),
 	}

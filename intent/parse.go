@@ -28,7 +28,7 @@ func Parse(ctx context.Context, cm ParseModel, in ParseInput) *ParsedIntent {
 	return p
 }
 
-// ParseWithUsage 同 Parse，并返回本次 FC 调用的 token 用量（若模型实现返回）。
+// ParseWithUsage 意图解析，返回意图结构化结果和token用量
 func ParseWithUsage(ctx context.Context, cm ParseModel, in ParseInput) (*ParsedIntent, *schema.TokenUsage) {
 	if strings.TrimSpace(os.Getenv(disableIntentEnv)) == "1" || cm == nil {
 		return nil, nil

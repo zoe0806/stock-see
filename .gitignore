@@ -4,10 +4,10 @@
 /memory/
 /skills/
 /cronstock/
-/kb/
 /cmd/
 /.idea/
-.cursorignore
+/router/other.go
+/kb/
 
 # 配置
 /config/

@@ -9,7 +9,6 @@ import (
 	"stock-see/intent"
 	"stock-see/intent/combo"
 	"stock-see/intent/queryaug"
-	"stock-see/kb"
 	"stock-see/memory"
 	"stock-see/prompt"
 	"stock-see/tools"
@@ -90,7 +89,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		um = matchText
 	}
 
-	// 查询改写：知识库槽位 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
+	// 查询改写：知识库槽位&规则引擎 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
 	aug := queryaug.Build(r.Context(), um, req.SessionHistory, effectiveSym)
 	nlRW := combo.NLQueryRewrite(um, aug.Slots, effectiveSym)
 	log.Println("nlRW", nlRW)
@@ -112,6 +111,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		tFC := time.Now()
 		var u *schema.TokenUsage
 		umForIntent := intent.MergeRewrittenAndOriginal(um, nlRW)
+		//意图解析
 		parsed, u = intent.ParseWithUsage(r.Context(), parseModel, intent.ParseInput{
 			UserMessage:    umForIntent,
 			SessionHistory: req.SessionHistory,
@@ -126,20 +126,14 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		if aug.Slots.SymbolCode != "" {
 			parsed.Symbols = intent.NormalizeSymbols([]string{aug.Slots.SymbolCode})
 		}
-		if len(parsed.Symbols) == 0 {
-			if c := kb.TopStockCodeFromHits(aug.Hits); c != "" {
-				parsed.Symbols = intent.NormalizeSymbols([]string{c})
-			}
-		}
+
 	}
 
 	sym := effectiveSym
 	if sym == "" && parsed != nil && len(parsed.Symbols) > 0 {
 		sym = parsed.Symbols[0]
 	}
-	if sym == "" {
-		sym = kb.TopStockCodeFromHits(aug.Hits)
-	}
+
 	if sid := strings.TrimSpace(req.SessionID); sid != "" && sym != "" {
 		if ns := intent.NormalizeSymbols([]string{sym}); len(ns) > 0 {
 			tools.Put(sid, ns[0])
@@ -166,14 +160,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		extraCtx += "## 请据此归纳回答用户，避免与事实矛盾；勿编造未出现的数字。\n\n" + pref.ContextMarkdown
 	}
 	pt.PrefetchMs = time.Since(tPrefetch).Milliseconds()
-	//根据意图加载对应skills文档，构建上下文
-	// matchText = intent.EnrichMatchText(matchText, parsed)
-	// if parsed != nil {
-	// 	log.Printf("[intent] kind=%s symbols=%v axis=%s source=%s", parsed.TaskKind, parsed.Symbols, parsed.CompareAxis, parsed.Source)
-	// }
-	// skillsRoot := filepath.Join(".", "skills")
-	// skillPaths := loadMatchedSkillPaths(skillsRoot, matchText)
-	// skillsContent := prompt.LoadSkillsContent(skillPaths)
 
 	tCtx := time.Now()
 	//动态构造上下文（系统提示词{Context}）
@@ -262,13 +248,4 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 	fmt.Fprintf(w, "event: done\ndata: \n\n")
 	flusher.Flush()
-}
-
-// loadMatchedSkillPaths 从 skills 加载 SKILL.md：内置中文意图词 + 可选 intent.json。
-func loadMatchedSkillPaths(skillsRoot, matchText string) []string {
-	list, err := prompt.LoadSkillsFromDir(skillsRoot)
-	if err != nil {
-		return nil
-	}
-	return prompt.MatchSkillsForRequest(list, matchText)
 }

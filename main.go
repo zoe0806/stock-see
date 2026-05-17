@@ -198,8 +198,6 @@ func main() {
 
 	mux := router.InitRouter(runner, chatModel)
 	srv := &http.Server{Addr: ":8080", Handler: mux}
-	// 定时任务：每小时拉取新闻写入 RAG（Redis 未配置时自动跳过）
-	go router.RunRAGTicker()
 
 	if tools.IntentEasyRulesEnabled() {
 		if err := easyrules.Load(tools.IntentRulesFilePath()); err != nil {

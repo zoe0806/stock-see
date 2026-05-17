@@ -33,7 +33,7 @@ type Result struct {
 }
 
 // Build：槽位 + 规则 → ParsedCombo；
-// 支持3种模式：槽位 + 规则、FewShot、KBContext，默认使用槽位 + 规则
+// 支持3种模式：槽位 + 规则引擎、FewShot、KBContext，默认使用槽位 + 规则引擎
 // 槽位（词典倒排）先抽结构化信号，规则库再做确定性覆盖
 func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol string) Result {
 	um := strings.TrimSpace(userMessage)
