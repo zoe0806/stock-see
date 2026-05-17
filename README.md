@@ -1,4 +1,4 @@
-# 个股智能分析系统 — AI Agent + RAG 工程实践
+# 个股智能分析系统 — AI Agent + RAG
 
 ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)
 ![Eino](https://img.shields.io/badge/Eino-0.7.x-3C3C3C?style=flat)
@@ -16,7 +16,6 @@
 
 - 用户：「茅台怎么样？」→ 解析标的 `600519` 并分析  
 - 用户：「它的基本面呢？」→ 在无新股票名时沿用 **上一轮标的**
-
 
 
 ### 智能新闻检索（RAG）
@@ -124,7 +123,6 @@ go run . -eval -eval-suite=data/eval/suite.json
 └── skills/                 # 可选 SKILL.md 技能文档
 ```
 
-更细的 Agent 行为见仓库根目录 `AGENTS.md`。
 
 ## 📄 许可证
 

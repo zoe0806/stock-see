@@ -7,11 +7,11 @@
 /kb/
 /cmd/
 /.idea/
+.cursorignore
 
 # 配置
 /config/
 
 
 /static/break.html
-/static/cron-stock.html
 /static/rag.html
