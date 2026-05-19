@@ -177,12 +177,6 @@ func main() {
 		Instruction: sysTpl,
 		Model:       chatModel,
 	}
-	//关闭工具调用，由skill hints全面接管
-	// agentConfig.ToolsConfig = adk.ToolsConfig{
-	// 	ToolsNodeConfig: compose.ToolsNodeConfig{
-	// 		Tools: tools.StockTools(),
-	// 	},
-	// }
 
 	agent, err := adk.NewChatModelAgent(ctx, agentConfig)
 	if err != nil {

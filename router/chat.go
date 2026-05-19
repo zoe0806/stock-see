@@ -109,6 +109,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	if skipFC {
 		parsed = aug.ParsedCombo
 	} else {
+		//走FC 调用模型
 		tFC := time.Now()
 		var u *schema.TokenUsage
 		pendingCtx := ""

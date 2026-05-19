@@ -30,7 +30,7 @@ type Result struct {
 	RerankMs     int64 // 重排（若检索链路拆分）
 }
 
-// Build：槽位 + 规则 → ParsedCombo；
+// Build：槽位 → ParsedCombo；（规则引擎改为融合到ApplyComboRules中实现，不再单独使用）
 // 支持3种模式：槽位 + 规则引擎、FewShot、KBContext，默认使用槽位 + 规则引擎
 // 槽位（词典倒排）先抽结构化信号，规则库再做确定性覆盖
 func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol string) Result {

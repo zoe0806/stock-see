@@ -53,7 +53,7 @@ func ParseWithUsage(ctx context.Context, cm ParseModel, in ParseInput) (*ParsedI
 		schema.SystemMessage(sys),
 		schema.UserMessage(userText),
 	}
-
+	//调用模型生成回复
 	resp, err := tcm.Generate(ctx, msgs,
 		model.WithToolChoice(schema.ToolChoiceForced, submitParsedIntentToolName),
 		model.WithTemperature(0.1),
