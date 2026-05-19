@@ -36,6 +36,8 @@ var (
 type index struct {
 	// 意图：词条 -> 意图键（倒排）
 	intentTerm map[string][]string
+	// policyRules 槽位组合后的策略覆盖（knowledge.json policy_rules）。
+	policyRules []policyRule
 	// 股票：按别名长度降序，便于最长匹配
 	stocks []stockHit
 	// 指标：同义词长度降序
@@ -145,6 +147,7 @@ func buildIndex(k *tools.KnowledgeFile) *index {
 	sort.Slice(x.times, func(i, j int) bool {
 		return len([]rune(x.times[i].Phrase)) > len([]rune(x.times[j].Phrase))
 	})
+	x.policyRules = policyRulesFromKB(k.PolicyRules)
 	return x
 }
 
@@ -218,6 +221,7 @@ func MatchSlots(query string) RawSlots {
 		out.SymbolCode = out.MatchedStocks[0].Code
 		out.SymbolName = out.MatchedStocks[0].Name
 	}
+	// 意图关键词匹配
 	for term, intents := range x.intentTerm {
 		if strings.Contains(q, term) {
 			for _, ik := range intents {

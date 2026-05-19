@@ -26,10 +26,6 @@ type IntentConfig struct {
 	// 为 true 时仅在「本地槽位组合不足以跳过 FC」时检索（与倒排索引互斥补充，避免每请求双重命中）；详见 IntentKnowledgeRAGEnabled 注释。
 	// JSON 省略该字段时默认开启。
 	KnowledgeRAGEnabled *bool `json:"knowledgeRagEnabled"`
-	// EasyRules 为 true 时启用「规则引擎」模式（config/intent_rules.json）；为 false（默认）仅用内存倒排 + 槽位组合。
-	EasyRules *bool `json:"easyRules"`
-	// IntentRulesPath 规则文件路径（相对工作目录或绝对路径）；默认可为 config/intent_rules.json。
-	IntentRulesPath string `json:"intentRulesPath"`
 	// FewShotExamplesPath Few-shot 结构化示例 JSON；默认 data/intent_fewshot.json。
 	FewShotExamplesPath string `json:"fewShotExamplesPath"`
 	// FewShotForIntentParse 为 true 时在意图 FC 的 KBContext 中附加 Few-shot（需 embedding）；默认 false。
@@ -159,25 +155,6 @@ func IntentKnowledgeRAGEnabled() bool {
 	return *c.Intent.KnowledgeRAGEnabled
 }
 
-const intentEasyRulesEnv = "STOCK_INTENT_EASYRULES"
-
-// IntentEasyRulesEnabled 为 true 时使用 JSON 规则引擎层（见 intent/easyrules）；false（默认）使用倒排 + 槽位组合 + Few-shot。
-func IntentEasyRulesEnabled() bool {
-	if v := strings.TrimSpace(os.Getenv(intentEasyRulesEnv)); v != "" {
-		switch strings.ToLower(v) {
-		case "0", "false", "off", "no":
-			return false
-		case "1", "true", "on", "yes":
-			return true
-		}
-	}
-	c := loadStockConfig()
-	if c == nil || c.Intent == nil || c.Intent.EasyRules == nil {
-		return false
-	}
-	return *c.Intent.EasyRules
-}
-
 // IntentFewShotExamplesPath Few-shot 示例文件路径。
 func IntentFewShotExamplesPath() string {
 	c := loadStockConfig()
@@ -185,15 +162,6 @@ func IntentFewShotExamplesPath() string {
 		return strings.TrimSpace(c.Intent.FewShotExamplesPath)
 	}
 	return filepath.Join("data", "intent_fewshot.json")
-}
-
-// IntentRulesFilePath 规则引擎使用的 JSON 路径。
-func IntentRulesFilePath() string {
-	c := loadStockConfig()
-	if c != nil && c.Intent != nil && strings.TrimSpace(c.Intent.IntentRulesPath) != "" {
-		return strings.TrimSpace(c.Intent.IntentRulesPath)
-	}
-	return filepath.Join("config", "intent_rules.json")
 }
 
 // IntentFewShotForIntentParse 是否在 FC 的 queryaug 块中启用 Few-shot（默认 false，与 NL 改写分工：词典改写已进 UserMessage）。

@@ -17,6 +17,21 @@ type KnowledgeFile struct {
 	Intents     map[string][]string `json:"intents"`
 	Metrics     []MetricRow         `json:"metrics"`
 	TimePhrases []TimePhraseRow     `json:"time_phrases"`
+	// PolicyRules 槽位组合后的策略覆盖（原 intent_rules.json，见 intent/combo/policy.go）。
+	PolicyRules []PolicyRuleRow `json:"policy_rules"`
+}
+
+// PolicyRuleRow 单条策略：在用户原句上匹配后对 ParsedIntent 打补丁。
+type PolicyRuleRow struct {
+	ID               string   `json:"id"`
+	Priority         int      `json:"priority"`
+	AllContains      []string `json:"all_contains"`
+	AnyContains      []string `json:"any_contains"`
+	SetTaskKind      string   `json:"set_task_kind"`
+	AppendSkillHints []string `json:"append_skill_hints"`
+	RemoveSkillHints []string `json:"remove_skill_hints"`
+	SetCompareAxis   string   `json:"set_compare_axis"`
+	SetTimeHint      string   `json:"set_time_hint"`
 }
 
 type StockRow struct {

@@ -64,6 +64,7 @@ func ApplyComboRules(slots RawSlots, userQuery string) *intent.ParsedIntent {
 		if len(slots.MetricFields) > 0 {
 			p.CompareAxis = metricToCompareAxis(slots.MetricFields[0])
 		}
+		applyPolicyRules(p, slots, userQuery)
 		intent.ValidateAndPatch(p, userQuery)
 		return p
 	}
@@ -161,6 +162,7 @@ func ApplyComboRules(slots RawSlots, userQuery string) *intent.ParsedIntent {
 		p.CompareAxis = metricToCompareAxis(slots.MetricFields[0])
 	}
 
+	applyPolicyRules(p, slots, userQuery)
 	intent.ValidateAndPatch(p, userQuery)
 	return p
 }
@@ -206,6 +208,7 @@ func intentKeysToSkillHints(primary string, ranked []string) []string {
 	return out
 }
 
+// 组合槽位信心得分
 func comboConfidence(s RawSlots) float64 {
 	var score float64
 	if len(s.MatchedStocks) >= 2 {

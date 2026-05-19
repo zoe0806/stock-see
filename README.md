@@ -39,7 +39,7 @@
 
 ```
 用户输入
-  → queryaug（词典槽位 + 规则 / 可选 easyrules）
+  → queryaug（词典槽位 + combo 规则，含 knowledge.json `policy_rules`）
   → NL 改写（combo.NLQueryRewrite）
   → 意图 FC（可选跳过）
   → skill_hints 预取 + Python 工具
@@ -50,7 +50,7 @@
 |------|----------|
 | 后端 | Go + [CloudWeGo Eino](https://github.com/cloudwego/eino)（ADK Runner） |
 | 大模型 | OpenAI 兼容 API（`config/stock.json` → `chatOpenAI`） |
-| 意图 | 内存倒排 + `submit_parsed_intent` FC；可选 `config/intent_rules.json` |
+| 意图 | 内存倒排 + `policy_rules` + `submit_parsed_intent` FC |
 | 检索 | Redis Stack + Embedding（`rag` 包） |
 | 分析数据 | Python HTTP 服务（`stockPython.baseURL`） |
 
@@ -117,7 +117,7 @@ go run . -eval -eval-suite=data/eval/suite.json
 ├── eval/                   # Prompt 离线评测
 ├── evalintent/             # 意图评测预测器（fc / combo / pipeline）
 ├── memory/                 # 按标的落盘记忆
-├── config/                 # stock.json、intent_rules.json、prompt 模板
+├── config/                 # stock.json、prompt 模板
 ├── data/                   # knowledge.json、intent_fewshot.json、eval 用例
 ├── static/                 # index.html、rag.html 等演示页
 └── skills/                 # 可选 SKILL.md 技能文档

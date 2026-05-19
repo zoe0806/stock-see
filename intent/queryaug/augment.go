@@ -13,11 +13,9 @@ import (
 
 	"stock-see/intent"
 	"stock-see/intent/combo"
-	"stock-see/intent/easyrules"
 
 	//"stock-see/intent/fewshot"
 	"stock-see/kb"
-	"stock-see/tools"
 )
 
 // Result 单次查询增强产物。
@@ -27,7 +25,7 @@ type Result struct {
 	Slots        combo.RawSlots
 	ParsedCombo  *intent.ParsedIntent
 	SlotMatchMs  int64 // MatchSlots 耗时（毫秒）
-	ComboRulesMs int64 // ApplyComboRules（及 easyrules）耗时（毫秒）
+	ComboRulesMs int64 // MatchSlots + ApplyComboRules（含 policy_rules）耗时（毫秒）
 	RetrieveMs   int64 // 向量检索（启用 IntentKnowledgeRAG 时）
 	RerankMs     int64 // 重排（若检索链路拆分）
 }
@@ -50,12 +48,7 @@ func Build(ctx context.Context, userMessage, sessionHistory, explicitSymbol stri
 	out.SlotMatchMs = time.Since(t0).Milliseconds()
 
 	t1 := time.Now()
-	var p *intent.ParsedIntent
-	if tools.IntentEasyRulesEnabled() {
-		p = easyrules.ApplyOver(combo.ApplyComboRules(out.Slots, um), um)
-	} else {
-		p = combo.ApplyComboRules(out.Slots, um)
-	}
+	p := combo.ApplyComboRules(out.Slots, um)
 	out.ComboRulesMs = time.Since(t1).Milliseconds()
 
 	if p != nil {

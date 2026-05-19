@@ -16,7 +16,6 @@ import (
 	"stock-see/eval"
 	"stock-see/evalintent"
 	"stock-see/intent"
-	"stock-see/intent/easyrules"
 	"stock-see/rag"
 	"stock-see/router"
 	"stock-see/tools"
@@ -55,12 +54,6 @@ func main() {
 	})
 	if err != nil {
 		panic(fmt.Errorf("初始化模型失败: %v", err))
-	}
-
-	if tools.IntentEasyRulesEnabled() {
-		if err := easyrules.Load(tools.IntentRulesFilePath()); err != nil {
-			panic(fmt.Errorf("[easyrules] 初始加载失败（仅槽位组合生效）: %v", err))
-		}
 	}
 
 	sysTpl, promptVer, err := tools.GetResolvedPrompt()

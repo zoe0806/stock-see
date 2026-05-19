@@ -25,7 +25,7 @@ func PredictFC(cm intent.ParseModel) intent.EvalPredictor {
 	}
 }
 
-// PredictCombo 仅用词典槽位 + ApplyComboRules（及可选 easyrules），不调用模型。
+// PredictCombo 仅用词典槽位 + ApplyComboRules（含 policy_rules），不调用模型。
 func PredictCombo() intent.EvalPredictor {
 	return func(ctx context.Context, c intent.IntentEvalCase) *intent.ParsedIntent {
 		aug := queryaug.Build(ctx, c.UserMessage, c.Session, c.Symbol)
