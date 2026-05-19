@@ -1,7 +1,6 @@
 package router
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -17,30 +16,43 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
+	"github.com/gin-gonic/gin"
 )
 
-func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, parseModel intent.ParseModel) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// chatRequest /chat 请求体
+type chatRequest struct {
+	Message        string `json:"message" form:"message"`
+	Symbol         string `json:"symbol" form:"symbol"`
+	SessionID      string `json:"session_id" form:"session_id"`
+	SessionHistory string `json:"session_history" form:"session_history"`
+	Memory         string `json:"memory" form:"memory"`
+	Context        string `json:"context" form:"context"`
+	Workspace      string `json:"workspace" form:"workspace"`
+}
+
+func bindChatRequest(c *gin.Context) (chatRequest, error) {
+	var req chatRequest
+	ct := strings.ToLower(c.GetHeader("Content-Type"))
+	if strings.Contains(ct, "application/json") {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			return req, err
+		}
+		return req, nil
+	}
+	if err := c.ShouldBind(&req); err != nil {
+		return req, err
+	}
+	return req, nil
+}
+
+func handerChat(c *gin.Context, runner *adk.Runner, parseModel intent.ParseModel) {
+	req, err := bindChatRequest(c)
+	if err != nil {
+		c.String(http.StatusBadRequest, "invalid request: %v", err)
 		return
 	}
 
-	// 解析用户消息（可扩展：symbol、mode、context、session_history、workspace、memory）
-	var req struct {
-		Message        string `json:"message"`
-		Symbol         string `json:"symbol"` // 可选：当前分析标的（六位代码即可，无需传整段 Memory）
-		SessionID      string `json:"session_id"`
-		Context        string `json:"context"` // 可选：工作空间、记忆等
-		SessionHistory string `json:"session_history"`
-		Workspace      string `json:"workspace"`
-		Memory         string `json:"memory"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-
-	userMessage := req.Message
+	userMessage := strings.TrimSpace(req.Message)
 	memoryContent := req.Memory
 	extraCtx := req.Context
 
@@ -62,22 +74,21 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 
 	// writeSSEData 按 SSE 规范发送多行 data：每行以 "data: " 前缀发送，避免 content 中的换行破坏事件边界。
 	writeSSEData := func(event, data string) {
-		fmt.Fprintf(w, "event: %s\n", event)
+		fmt.Fprintf(c.Writer, "event: %s\n", event)
 		for _, line := range strings.Split(data, "\n") {
-			fmt.Fprintf(w, "data: %s\n", line)
+			fmt.Fprintf(c.Writer, "data: %s\n", line)
 		}
-		fmt.Fprint(w, "\n")
+		fmt.Fprint(c.Writer, "\n")
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, ok := w.(http.Flusher)
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "Streaming unsupported")
 		return
 	}
-
 	um := strings.TrimSpace(req.Message)
 	if u := strings.TrimSpace(userMessage); u != "" {
 		if um == "" {
@@ -88,7 +99,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 	}
 
 	// 查询改写：知识库槽位&规则引擎 → 自然语言规范句（NLQueryRewrite）；FC 另见 KBContext（Few-shot 等）。
-	aug := queryaug.Build(r.Context(), um, req.SessionHistory, effectiveSym)
+	aug := queryaug.Build(c.Request.Context(), um, req.SessionHistory, effectiveSym)
 	comboRW := combo.NLQueryRewrite(um, aug.Slots, effectiveSym)
 	skipFC := aug.ParsedCombo != nil && combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots)
 	fmt.Println("skipFC", skipFC, aug.ParsedCombo, combo.ShouldSkipFC(aug.ParsedCombo, aug.Slots))
@@ -117,7 +128,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 			pendingCtx = intent.FormatPendingForParse(pendingIntent)
 		}
 		// 意图 FC 自行产出 nl_rewritten；此处不预拼词典改写，避免覆盖多轮语义
-		parsed, u = intent.ParseWithUsage(r.Context(), parseModel, intent.ParseInput{
+		parsed, u = intent.ParseWithUsage(c.Request.Context(), parseModel, intent.ParseInput{
 			UserMessage:     um,
 			SessionHistory:  req.SessionHistory,
 			ExplicitSymbol:  effectiveSym,
@@ -182,13 +193,13 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		tools.LogPipeline("[chat]", skipFC, pt, tokenAcc)
 		writeSSEData("metrics", tools.MetricsJSON(skipFC, pt, tokenAcc))
 		flusher.Flush()
-		fmt.Fprintf(w, "event: done\ndata: \n\n")
+		fmt.Fprintf(c.Writer, "event: done\ndata: \n\n")
 		flusher.Flush()
 		return
 	}
 
 	tPrefetch := time.Now()
-	pref := tools.RunSkillHintsTools(r.Context(), prefetchSyms, um, hints)
+	pref := tools.RunSkillHintsTools(c.Request.Context(), prefetchSyms, um, hints)
 	if strings.TrimSpace(pref.ContextMarkdown) != "" {
 		if extraCtx != "" {
 			extraCtx += "\n\n"
@@ -221,7 +232,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 
 	//生成回复
 	tGen := time.Now()
-	iterator := runner.Run(r.Context(), messages, adk.WithSessionValues(map[string]any{
+	iterator := runner.Run(c.Request.Context(), messages, adk.WithSessionValues(map[string]any{
 		"Context": contextBlock, //注入系统提示词{Context}
 	}))
 
@@ -232,7 +243,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 			break
 		}
 		if event.Err != nil {
-			fmt.Fprintf(w, "event: error\ndata: %v\n\n", event.Err)
+			fmt.Fprintf(c.Writer, "event: error\ndata: %v\n\n", event.Err)
 			flusher.Flush()
 			break
 		}
@@ -248,7 +259,7 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 					break
 				}
 				if err != nil {
-					fmt.Fprintf(w, "event: error\ndata: %v\n\n", err)
+					fmt.Fprintf(c.Writer, "event: error\ndata: %v\n\n", err)
 					flusher.Flush()
 					break
 				}
@@ -283,6 +294,6 @@ func handerChat(w http.ResponseWriter, r *http.Request, runner *adk.Runner, pars
 		}
 		tools.ClearPendingIntent(sid)
 	}
-	fmt.Fprintf(w, "event: done\ndata: \n\n")
+	fmt.Fprintf(c.Writer, "event: done\ndata: \n\n")
 	flusher.Flush()
 }

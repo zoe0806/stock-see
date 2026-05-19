@@ -20,12 +20,16 @@ import (
 	"stock-see/router"
 	"stock-see/tools"
 
+	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
 
-	"github.com/cloudwego/eino-ext/components/model/openai" //openai模型
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
+	s := gin.Default()
+
 	evalFlag := flag.Bool("eval", false, "运行离线评测集（读取 -eval-suite 或 config.eval.defaultSuitePath），打印均分后退出")
 	evalSuite := flag.String("eval-suite", "", "评测集 JSON 路径（默认可由 config eval.defaultSuitePath 指定）")
 	evalJSONOut := flag.String("eval-json", "", "评测汇总写入该 JSON 文件（可选）")
@@ -43,10 +47,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	chatCfg := tools.GetChatOpenAIConfig()
-	if chatCfg == nil || chatCfg.Model == "" || chatCfg.APIKey == "" {
-		panic(fmt.Errorf("请在 config/stock.json 或 config/stock.example.json 中配置 chatOpenAI（model、apiKey、baseURL）"))
+	stockCfg := tools.GetStockConfig()
+	if stockCfg == nil || stockCfg.ChatOpenAI == nil || stockCfg.ChatOpenAI.Model == "" || stockCfg.ChatOpenAI.APIKey == "" || stockCfg.ChatOpenAI.BaseURL == "" || stockCfg.Port == 0 {
+		panic(fmt.Errorf("请在 config/stock.json 或 config/stock.example.json 中配置 chatOpenAI（model、apiKey、baseURL）和 port"))
 	}
+	chatCfg := stockCfg.ChatOpenAI
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		BaseURL: chatCfg.BaseURL,
 		Model:   chatCfg.Model,
@@ -189,16 +194,18 @@ func main() {
 		EnableStreaming: true,
 	})
 
-	mux := router.InitRouter(runner, chatModel)
-	srv := &http.Server{Addr: ":8080", Handler: mux}
-	log.Println("Server started on port 8080")
+	router.SetupRouter(s, runner, chatModel)
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", stockCfg.Port), Handler: s}
+	log.Printf("Server started on http://localhost:%d", stockCfg.Port)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			panic(fmt.Errorf("listen and serve: %v", err))
+			log.Fatalf("listen: %v", err)
 		}
 	}()
 	<-ctx.Done()
 	shutdownCtx, c2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer c2()
-	_ = srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
 }

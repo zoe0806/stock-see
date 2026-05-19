@@ -18,6 +18,7 @@ type StockConfig struct {
 	ChatOpenAI  *ChatOpenAIConfig `json:"chatOpenAI"`
 	Prompt      *PromptConfig     `json:"prompt"`
 	Eval        *EvalConfig       `json:"eval"`
+	Port        int               `json:"port"`
 }
 
 // IntentConfig 对话意图侧可选行为（与资讯 RAG 的 rag.enabled 独立）。
